@@ -53,6 +53,9 @@ const (
 	// Constants for retry logic
 	maxRetries       = 3
 	baseBackoffDelay = 1 * time.Second
+
+	// The English site rejects non-browser user agents with a 404 from CloudFront.
+	defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 )
 
 type SiteLanguage language.Tag
@@ -92,6 +95,8 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 		languageCode:  language.English,
 		lastPageFunc: func(doc *goquery.Document) int {
 			numCardsS := doc.Find(".c-search__results-item span").First().Text()
+			numCardsS = strings.TrimSpace(numCardsS)
+			numCardsS = strings.ReplaceAll(numCardsS, ",", "")
 			numCards, err := strconv.Atoi(numCardsS)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Couldn't get num cards: %v", err))
@@ -152,7 +157,7 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 							time.Sleep(backoffDelay + jitter)
 						}
 
-						detailedPageResp, err = proxy.Client.Get(fullPath)
+						detailedPageResp, err = getWithHeaders(proxy.Client, fullPath, task.siteConfig.cardListURL)
 						if err == nil && detailedPageResp.StatusCode == http.StatusOK {
 							break
 						}
@@ -289,11 +294,19 @@ type scrapeTask struct {
 
 func (s *scrapeTask) getLastPage() (int, error) {
 	slog.Info(fmt.Sprintf("Getting last page of %q with %v", s.siteConfig.cardSearchURL, s.urlValues))
-	resp, err := http.PostForm(fmt.Sprintf("%v?page=%d", s.siteConfig.cardSearchURL, 1), s.urlValues)
+	proxy := biri.GetClient()
+	proxy.Client.Jar = s.cookieJar
+	resp, err := postFormWithHeaders(proxy.Client, fmt.Sprintf("%v?page=%d", s.siteConfig.cardSearchURL, 1), s.urlValues, s.siteConfig.cardListURL)
 	if err != nil {
+		proxy.Ban()
 		return 0, fmt.Errorf("error getting last page: %v", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		proxy.Ban()
+		return 0, fmt.Errorf("error getting last page: unexpected status %d", resp.StatusCode)
+	}
+	proxy.Readd()
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
@@ -351,8 +364,17 @@ func pageFetchWorker(id int, task *scrapeTask) {
 			proxy := biri.GetClient()
 			proxy.Client.Jar = task.cookieJar
 
+			// Configure client timeout and transport
+			proxy.Client.Timeout = 60 * time.Second // Increase timeout to 60 seconds
+			if transport, ok := proxy.Client.Transport.(*http.Transport); ok {
+				transport.ResponseHeaderTimeout = 30 * time.Second
+				transport.TLSHandshakeTimeout = 20 * time.Second
+				transport.IdleConnTimeout = 90 * time.Second
+				transport.MaxIdleConnsPerHost = 100
+			}
+
 			t := time.After(minTimeBetweenRequests)
-			resp, err := proxy.Client.PostForm(link, task.urlValues)
+			resp, err := postFormWithHeaders(proxy.Client, link, task.urlValues, task.siteConfig.cardListURL)
 			if err != nil {
 				if strings.Contains(err.Error(), "connection reset by peer") ||
 					strings.Contains(err.Error(), "EOF") ||
@@ -583,7 +605,7 @@ func CardsStream(cfg Config, cardCh chan<- Card) error {
 		urlValues:  urlValues,
 	}
 	if cfg.GetRecent {
-		resp, err := http.Get(siteCfg.cardListURL)
+		resp, err := getWithHeaders(http.DefaultClient, siteCfg.cardListURL, "")
 		if err != nil {
 			return fmt.Errorf("error getting recent: %v", err)
 		}
@@ -719,7 +741,7 @@ func ExpansionList(cfg Config) (map[int]string, error) {
 	slog.Debug("Got proxy")
 	proxy.Client.Jar = jar
 
-	resp, err := proxy.Client.PostForm(siteCfg.cardListURL, url.Values{})
+	resp, err := postFormWithHeaders(proxy.Client, siteCfg.cardListURL, url.Values{}, siteCfg.cardListURL)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read page: %v", err)
 	}
@@ -757,4 +779,34 @@ func ExpansionList(cfg Config) (map[int]string, error) {
 	})
 
 	return eMap, nil
+}
+
+func getWithHeaders(client *http.Client, endpoint string, referer string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	setDefaultHeaders(req, referer)
+
+	return client.Do(req)
+}
+
+func postFormWithHeaders(client *http.Client, endpoint string, form url.Values, referer string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	setDefaultHeaders(req, referer)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	return client.Do(req)
+}
+
+func setDefaultHeaders(req *http.Request, referer string) {
+	req.Header.Set("User-Agent", defaultUserAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	if referer != "" {
+		req.Header.Set("Referer", referer)
+	}
 }
