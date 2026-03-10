@@ -87,9 +87,6 @@ func assertCardEqualsWithTitle(t *testing.T, title string, got, want Card) {
 	if !equalSlice(got.Traits, want.Traits) {
 		t.Errorf("%sIncorrect SpecialAttrib: got %v, want %v", prefix, got.Traits, want.Traits)
 	}
-	if got.Version != want.Version {
-		t.Errorf("%sIncorrect Version: got %q, want %q", prefix, got.Version, want.Version)
-	}
 	if got.ImageURL != want.ImageURL {
 		t.Errorf("%sIncorrect ImageURL: got %q, want %q", prefix, got.ImageURL, want.ImageURL)
 	}
@@ -296,7 +293,6 @@ func TestExtractDataCX_jp(t *testing.T) {
 		Power:         "",
 		Rarity:        "CR",
 		ImageURL:      "https://ws-tcg.com/wordpress/wp-content/images/cardlist/b/bd_w63/bd_w63_025.png",
-		Version:       CardModelVersion,
 		Triggers:      []string{"SOUL", "RETURN"},
 		Text: []string{
 			"【永】 あなたのキャラすべてに、パワーを＋1000し、ソウルを＋1。",
@@ -404,7 +400,6 @@ func TestExtractData_en(t *testing.T) {
 		Traits:        []string{"Master", "Love"},
 		Text:          []string{"【AUTO】 When this card is placed on the stage from your hand, choose 1 of your 《Master》 or 《Servant》 characters, and that character gets +1500 power until end of turn."},
 		ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/f/fs_s64/FS_BCS_2019_03.png",
-		Version:       CardModelVersion,
 	}
 	assertCardEquals(t, card, expectedCard)
 }
@@ -510,7 +505,6 @@ func TestExtractData_en_multiIconAbility(t *testing.T) {
 			"【CONT】 If your climax area has a climax with [CHOICE] in its trigger icon, this card in all of your zones get [CHOICE] in the trigger icon. If there is a climax with [TREASURE] in its trigger icon, this card in all of your zones get [TREASURE] in the trigger icon. If there is a climax with [STANDBY] in its trigger icon, this card in all of your zones get [STANDBY] in the trigger icon. If there is a climax with [GATE] in its trigger icon, this card in all of your zones get [GATE] in the trigger icon.",
 			"【AUTO】 【CLOCK】 Alarm If this card is the top card of your clock, and you have 4 or more 《World of Avatar》 characters, at the beginning of your climax phase, you may put the top card of your deck into your stock.",
 		},
-		Version: CardModelVersion,
 	}
 
 	card := extractData(siteConfigs[English], doc.Clone())
@@ -848,7 +842,6 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 					"【AUTO】At the beginning of your climax phase, choose 1 of your 《Music》 characters, and that character gets +1000 power until end of turn.",
 					"【ACT】Brainstorm [(1)【REST】this card] Flip over 4 cards from the top of your deck, and put it into your waiting room. For each climax revealed among those cards, draw up to 1 card.",
 				},
-				Version: CardModelVersion,
 			},
 		},
 		{
@@ -945,7 +938,6 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Text: []string{
 					"【CONT】  All of your characters get +2 soul.",
 				},
-				Version: CardModelVersion,
 			},
 		},
 		{
@@ -1045,7 +1037,6 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 					"【AUTO】 When this card becomes 【REVERSE】, if you have another 《Remnant》 character, and this card's battle opponent is level 0 or lower, you may put the top card of your opponent's clock into their waiting room. If you do, put that character into your opponent's clock.",
 					"【AUTO】 [(1)] When this card is put into your waiting room from the stage, you may pay the cost. If you do, look at up to 3 cards from the top of your deck, choose 1 card from among them, put it into your clock, and put the rest into your waiting room. If you put 1 card into your clock, choose 1 《Remnant》 character in your waiting room, and return it to your hand.",
 				},
-				Version: CardModelVersion,
 			},
 		},
 		{
@@ -1143,7 +1134,6 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 					"【AUTO】 When your climax is placed on your climax area, this card gets +3000 power until end of turn.",
 					"【AUTO】 【CXCOMBO】 When this card attacks, if \"Never-Ending Sunset Area\" is in your climax area, and you have another 《Game》 character, put the top 2 cards of your deck into your waiting room, choose up to 1 level X or lower 《Game》 character in your waiting room, and return it to your hand. X is equal to the total level of the cards put into your waiting room by this effect. (Climax are regarded as level 0)",
 				},
-				Version: CardModelVersion,
 			},
 		},
 		{
@@ -1241,7 +1231,6 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 					"【AUTO】 When this card is placed on the stage from your hand, reveal the top card of your deck. If that card is a 《Demon Continent》 character, this card gets +1 level and +1500 power until end of turn. (Return the revealed card to its original place)",
 					"【AUTO】 When this card's battle opponent becomes 【REVERSE】, choose 1 of your other 《Demon Continent》 characters, 【REST】 it, and move it to an open position of your back stage.",
 				},
-				Version: CardModelVersion,
 			},
 		},
 		{
@@ -1337,7 +1326,6 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 					"【AUTO】 [(2) Put 1 character from your stage into your waiting room] When you use this card's \"Backup\", you may pay the cost. If you do, choose 1 of your opponent's characters with level higher than your opponent's level, and put it into their waiting room.",
 					"【ACT】 【COUNTER】 Backup 2500, Level 2 [(1) Put this card from your hand into your waiting room] (Choose 1 of your characters that is being frontal attacked, and that character gets +2500 power until end of turn)",
 				},
-				Version: CardModelVersion,
 			},
 		},
 	}
@@ -1454,7 +1442,6 @@ func TestExtractData_en_improperColor(t *testing.T) {
 					"【CONT】 Assist All of your characters in front of this card get +X power. X is equal to that character's level ×500.",
 					"【ACT】 [(2) 【REST】 this card] Put the top card of your clock into your waiting room.",
 				},
-				Version: CardModelVersion,
 			},
 		},
 	}

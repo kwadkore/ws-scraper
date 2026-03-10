@@ -72,30 +72,25 @@ type Card struct {
 	// ...Except for the two purple cards (むらさきパプリス(PY/S38-125) and むらさきぷよ(PY/S38-120)).
 	Color string `json:"color"`
 	// Cost to play the card
-	Cost string `json:"cost"`
+	Cost string `json:"cost,omitempty"`
 	// Level required in order to play the card.
-	Level string `json:"level"`
+	Level string `json:"level,omitempty"`
 	// Power indicates the card's battle strength. Only valid for Character cards.
-	Power string `json:"power"`
+	Power string `json:"power,omitempty"`
 	// Soul is an integer indicating how many soul points the card has. Only valid for Character cards.
-	Soul string `json:"soul"`
+	Soul string `json:"soul,omitempty"`
 	// Text describing the card's abilities.
 	Text []string `json:"text"`
 	// Traits indicating the attributes the card has. These are often referenced in card text.
-	Traits []string `json:"traits"`
+	Traits []string `json:"traits,omitempty"`
 	// Triggers that the card has and are activated during trigger checks.
-	Triggers []string `json:"triggers"`
+	Triggers []string `json:"triggers,omitempty"`
 
-	FlavorText string      `json:"flavorText"`
+	FlavorText string      `json:"flavorText,omitempty"`
 	ImageURL   string      `json:"imageURL"`
 	Image      image.Image `json:"-"`
 	Rarity     string      `json:"rarity"`
-
-	Version string `json:"version"`
 }
-
-// CardModelVersion : Card format version
-const CardModelVersion = "1"
 
 var (
 	standardCardSuffixRE = regexp.MustCompile(`(?P<setID>[a-zA-Z0-9]+)/(?P<release>[a-zA-Z0-9-]+)[-_](?P<id>[a-zA-Z0-9_]+\+?)$`)
@@ -269,7 +264,6 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		Power:         filterDash(info["power"]),
 		Rarity:        info["rarity"],
 		Text:          ability,
-		Version:       CardModelVersion,
 	}
 	if fullURL, err := joinPath(config.baseURL, imageCardURL); err == nil {
 		card.ImageURL = fullURL.String()
@@ -402,7 +396,6 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 		Cost:          filterDash(infos["cost"]),
 		Rarity:        infos["rarity"],
 		Text:          ability,
-		Version:       CardModelVersion,
 	}
 	if fullURL, err := joinPath(config.baseURL, imageCardURL); err == nil {
 		card.ImageURL = fullURL.String()
