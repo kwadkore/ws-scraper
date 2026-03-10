@@ -16,27 +16,20 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
 	"log/slog"
-	"math/rand"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
-	"golang.org/x/net/publicsuffix"
-	"golang.org/x/text/language"
-
-	"crypto/tls"
-
-	"github.com/Akenaide/biri"
 	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/text/language"
 )
 
 const (
@@ -46,13 +39,6 @@ const (
 
 	// The maximum number of workers at each stage that have to interact with the websites.
 	maxScrapeWorker int = 5
-
-	// The minimum amount of time each worker should wait before making a new request to the server. This should help to avoid overwhelming the server.
-	minTimeBetweenRequests = 500 * time.Millisecond
-
-	// Constants for retry logic
-	maxRetries       = 3
-	baseBackoffDelay = 1 * time.Second
 
 	// The English site rejects non-browser user agents with a 404 from CloudFront.
 	defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
@@ -109,7 +95,6 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 		pageScanParseFunc: func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (pageDone bool) {
 			doc, err := goquery.NewDocumentFromReader(resp.Body)
 			if err != nil {
-				task.pageURLCh <- resp.Request.URL.String()
 				slog.With("url", resp.Request.URL).Error(fmt.Sprintf("Couldn't parse result page: %v", err))
 				return false
 			}
@@ -132,63 +117,25 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 					}
 					fullPath := fp.String()
 
-					proxy := biri.GetClient()
-					proxy.Client.Jar = task.cookieJar
-
-					transport, ok := proxy.Client.Transport.(*http.Transport)
-					if !ok {
-						transport = &http.Transport{}
-					}
-					// Skip verification since we're targeting a trusted site
-					transport.TLSClientConfig = &tls.Config{
-						InsecureSkipVerify: true,
-					}
-					transport.DisableKeepAlives = false
-
-					proxy.Client.Transport = transport
-
-					t := time.After(minTimeBetweenRequests)
-					// Retry logic for EOF errors
-					var detailedPageResp *http.Response
-					for retries := 0; retries < maxRetries; retries++ {
-						if retries > 0 {
-							backoffDelay := time.Duration(retries) * baseBackoffDelay
-							jitter := time.Duration(rand.Int63n(int64(backoffDelay) / 2))
-							time.Sleep(backoffDelay + jitter)
-						}
-
-						detailedPageResp, err = getWithHeaders(proxy.Client, fullPath, task.siteConfig.cardListURL)
-						if err == nil && detailedPageResp.StatusCode == http.StatusOK {
-							break
-						}
-						if detailedPageResp != nil {
-							detailedPageResp.Body.Close()
-						}
+					detailedPageResp, err := task.client.request(task.ctx, requestOptions{
+						Method:  http.MethodGet,
+						URL:     fullPath,
+						Referer: task.siteConfig.cardListURL,
+					})
+					if err != nil {
+						slog.With("url", fullPath).Error("Failed to get detailed page", "error", err)
+						return
 					}
 
-					if err != nil || detailedPageResp.StatusCode != http.StatusOK {
-						var sc string
-						if detailedPageResp != nil {
-							sc = fmt.Sprintf(" (statusCode=%d)", detailedPageResp.StatusCode)
-							detailedPageResp.Body.Close()
-						}
-						slog.With("url", fullPath).Error(fmt.Sprintf("Failed to get detailed page%s", sc), "error", err)
-					} else {
-						defer detailedPageResp.Body.Close()
-						proxy.Readd()
-						doc, err := goquery.NewDocumentFromReader(detailedPageResp.Body)
-						if err != nil {
-							// TODO: add proper retry of failed pages
-							slog.With("url", detailedPageResp.Request.URL).Error(fmt.Sprintf("Couldn't parse detailedPageResp: %v", err))
-							return
-						}
-						slog.With("url", fullPath).Debug("Successfully parsed detailed page")
-						cardDetails := doc.Find(".p-cards__detail-wrapper")
-						wgCardSel.Add(1)
-						cardSelCh <- cardDetails
+					doc, err := goquery.NewDocumentFromReader(bytes.NewReader(detailedPageResp.Body))
+					if err != nil {
+						slog.With("url", fullPath).Error(fmt.Sprintf("Couldn't parse detailed page: %v", err))
+						return
 					}
-					// Force the wait between requests
-					<-t
+					slog.With("url", fullPath).Debug("Successfully parsed detailed page")
+					cardDetails := doc.Find(".p-cards__detail-wrapper")
+					wgCardSel.Add(1)
+					cardSelCh <- cardDetails
 				})
 			}
 
@@ -287,28 +234,27 @@ type scrapeTask struct {
 	pageRespCh chan *http.Response
 	siteConfig siteConfig
 	urlValues  url.Values
-	cookieJar  http.CookieJar
 	lastPage   int
 	wgPageScan *sync.WaitGroup
+	client     *Client
+	ctx        context.Context
 }
 
 func (s *scrapeTask) getLastPage() (int, error) {
 	slog.Info(fmt.Sprintf("Getting last page of %q with %v", s.siteConfig.cardSearchURL, s.urlValues))
-	proxy := biri.GetClient()
-	proxy.Client.Jar = s.cookieJar
-	resp, err := postFormWithHeaders(proxy.Client, fmt.Sprintf("%v?page=%d", s.siteConfig.cardSearchURL, 1), s.urlValues, s.siteConfig.cardListURL)
+	respData, err := s.client.request(s.ctx, requestOptions{
+		Method:  http.MethodPost,
+		URL:     fmt.Sprintf("%v?page=%d", s.siteConfig.cardSearchURL, 1),
+		Referer: s.siteConfig.cardListURL,
+		Form:    s.urlValues,
+	})
 	if err != nil {
-		proxy.Ban()
 		return 0, fmt.Errorf("error getting last page: %v", err)
 	}
+	resp := responseToHTTPResponse(respData)
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		proxy.Ban()
-		return 0, fmt.Errorf("error getting last page: unexpected status %d", resp.StatusCode)
-	}
-	proxy.Readd()
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(respData.Body))
 	if err != nil {
 		return 0, fmt.Errorf("error parsing last page: %v", err)
 	}
@@ -346,71 +292,19 @@ func joinPath(baseURL, subPath string) (*url.URL, error) {
 
 func pageFetchWorker(id int, task *scrapeTask) {
 	for link := range task.pageURLCh {
-		success := false
-		var errs []string
-
-		// Try up to maxRetries times with exponential backoff
-		for attempt := 0; attempt < maxRetries; attempt++ {
-			if attempt > 0 {
-				// Exponential backoff with jitter
-				backoffDelay := time.Duration(attempt) * baseBackoffDelay
-				jitter := time.Duration(rand.Int63n(int64(backoffDelay) / 2))
-				waitTime := backoffDelay + jitter
-				slog.Debug(fmt.Sprintf("Retry attempt %d for %s, waiting %v", attempt, link, waitTime))
-				time.Sleep(waitTime)
-			}
-
-			slog.Debug(fmt.Sprintf("ID %d: fetching page %q with params %v", id, link, task.urlValues))
-			proxy := biri.GetClient()
-			proxy.Client.Jar = task.cookieJar
-
-			// Configure client timeout and transport
-			proxy.Client.Timeout = 60 * time.Second // Increase timeout to 60 seconds
-			if transport, ok := proxy.Client.Transport.(*http.Transport); ok {
-				transport.ResponseHeaderTimeout = 30 * time.Second
-				transport.TLSHandshakeTimeout = 20 * time.Second
-				transport.IdleConnTimeout = 90 * time.Second
-				transport.MaxIdleConnsPerHost = 100
-			}
-
-			t := time.After(minTimeBetweenRequests)
-			resp, err := postFormWithHeaders(proxy.Client, link, task.urlValues, task.siteConfig.cardListURL)
-			if err != nil {
-				if strings.Contains(err.Error(), "connection reset by peer") ||
-					strings.Contains(err.Error(), "EOF") ||
-					strings.Contains(err.Error(), "connection refused") {
-					slog.With("url", link).Debug("Temporary connection error", "error", err, "attempt", attempt)
-					proxy.Ban()
-					continue
-				}
-				slog.With("url", link).Debug("Proxy error", "error", err, "attempt", attempt)
-				proxy.Ban()
-				continue // Try next attempt
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				errs = append(errs, fmt.Sprintf("Bad status code=%v, attempt=%d", resp.StatusCode, attempt))
-				resp.Body.Close()
-				proxy.Ban()
-				continue // Try next attempt
-			}
-
-			// Success
-			proxy.Readd()
-			resp.Request = resp.Request.WithContext(context.Background()) // Use a new context without timeout
-			task.pageRespCh <- resp
-			<-t // Force wait between requests
-			success = true
-			break
+		slog.Debug(fmt.Sprintf("ID %d: fetching page %q with params %v", id, link, task.urlValues))
+		respData, err := task.client.request(task.ctx, requestOptions{
+			Method:  http.MethodPost,
+			URL:     link,
+			Referer: task.siteConfig.cardListURL,
+			Form:    task.urlValues,
+		})
+		if err != nil {
+			slog.With("url", link).Error("Failed page fetch", "error", err)
+			task.wgPageScan.Done()
+			continue
 		}
-
-		if !success {
-			slog.With("url", link).Error("Failed all retry attempts")
-			for _, err := range errs {
-				slog.With("url", link).Error(err)
-			}
-			task.pageURLCh <- link // Put back in queue for later
-		}
+		task.pageRespCh <- responseToHTTPResponse(respData)
 	}
 	slog.Info(fmt.Sprintf("Page fetch worker %d done", id))
 }
@@ -432,48 +326,27 @@ func pageScanWorker(
 	slog.Info(fmt.Sprintf("Page scan worker %d done", id))
 }
 
-func getImage(url string) (image.Image, error) {
-	var img image.Image
-	var err error
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			backoffDelay := time.Duration(attempt) * baseBackoffDelay
-			time.Sleep(backoffDelay)
-		}
-
-		client := biri.GetClient()
-		t := time.After(minTimeBetweenRequests)
-		var resp *http.Response
-		resp, err = client.Client.Get(url)
-		// Force the wait between requests
-		<-t
-
-		if err != nil {
-			client.Ban()
-			continue
-		}
-
-		img, _, err = image.Decode(resp.Body)
-		resp.Body.Close()
-
-		if err == nil {
-			client.Readd()
-			return img, nil
-		}
-
-		client.Ban()
+func getImageWithClient(ctx context.Context, client *Client, url string) (image.Image, error) {
+	respData, err := client.request(ctx, requestOptions{
+		Method: http.MethodGet,
+		URL:    url,
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, fmt.Errorf("failed to get image after %d attempts: %v", maxRetries, err)
+	img, _, decodeErr := image.Decode(bytes.NewReader(respData.Body))
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	return img, nil
 }
 
-func extractWorker(siteCfg siteConfig, getImages bool, wgCardSel *sync.WaitGroup, cardSelChan <-chan *goquery.Selection, cardCh chan<- Card) {
+func extractWorker(ctx context.Context, client *Client, siteCfg siteConfig, getImages bool, wgCardSel *sync.WaitGroup, cardSelChan <-chan *goquery.Selection, cardCh chan<- Card) {
 	for s := range cardSelChan {
 		c := extractData(siteCfg, s)
 
 		if getImages {
-			if img, err := getImage(c.ImageURL); err != nil {
+			if img, err := getImageWithClient(ctx, client, c.ImageURL); err != nil {
 				slog.Error(fmt.Sprintf("Problem getting image for %s: %v", c.CardNumber, err))
 			} else {
 				c.Image = img
@@ -521,12 +394,6 @@ func (br *boosterReducer) reduce(rc reducerConfig) {
 	rc.wg.Done()
 }
 
-func prepareBiri(cfg siteConfig) {
-	biri.Config.PingServer = cfg.baseURL
-	biri.Config.TickMinuteDuration = 1
-	biri.Config.Timeout = 25
-}
-
 type Config struct {
 	// The website's internal code for each expansion. The value is language-specific.
 	// For example,
@@ -547,7 +414,7 @@ type Config struct {
 	TitleNumber int
 }
 
-func CardsStream(cfg Config, cardCh chan<- Card) error {
+func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card) error {
 	var siteCfg siteConfig
 	if c, ok := siteConfigs[cfg.Language]; !ok {
 		return fmt.Errorf("unsupported language: %v", cfg.Language)
@@ -557,14 +424,6 @@ func CardsStream(cfg Config, cardCh chan<- Card) error {
 	}
 
 	slog.Info("Streaming cards", "config", cfg)
-
-	prepareBiri(siteCfg)
-	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
-	if err != nil {
-		return fmt.Errorf("failed to get new cookiejar: %v", err)
-	}
-
-	biri.ProxyStart()
 
 	urlValues := siteCfg.baseURLValues()
 	if cfg.ExpansionNumber != 0 {
@@ -600,17 +459,20 @@ func CardsStream(cfg Config, cardCh chan<- Card) error {
 
 	var scrapeTasks []*scrapeTask
 	defaultScrapeTask := scrapeTask{
-		cookieJar:  jar,
 		siteConfig: siteCfg,
 		urlValues:  urlValues,
+		client:     c,
+		ctx:        ctx,
 	}
 	if cfg.GetRecent {
-		resp, err := getWithHeaders(http.DefaultClient, siteCfg.cardListURL, "")
+		resp, err := c.request(ctx, requestOptions{
+			Method: http.MethodGet,
+			URL:    siteCfg.cardListURL,
+		})
 		if err != nil {
 			return fmt.Errorf("error getting recent: %v", err)
 		}
-		defer resp.Body.Close()
-		doc, err := goquery.NewDocumentFromReader(resp.Body)
+		doc, err := goquery.NewDocumentFromReader(bytes.NewReader(resp.Body))
 		if err != nil {
 			return fmt.Errorf("error parsing recent: %v", err)
 		}
@@ -642,7 +504,7 @@ func CardsStream(cfg Config, cardCh chan<- Card) error {
 	var wgScanner, wgCardSel sync.WaitGroup
 	cardSelCh := make(chan *goquery.Selection, maxLocalWorker)
 	for i := 0; i < maxLocalWorker; i++ {
-		go extractWorker(siteCfg, cfg.GetImages, &wgCardSel, cardSelCh, cardCh)
+		go extractWorker(ctx, c, siteCfg, cfg.GetImages, &wgCardSel, cardSelCh, cardCh)
 	}
 	for _, st := range scrapeTasks {
 		wgScanner.Add(1)
@@ -677,12 +539,11 @@ func CardsStream(cfg Config, cardCh chan<- Card) error {
 	wgCardSel.Wait()
 	close(cardSelCh)
 	close(cardCh)
-	biri.Done()
 
 	return nil
 }
 
-func aggregate(cfg Config, r reducer) error {
+func (c *Client) aggregate(ctx context.Context, cfg Config, r reducer) error {
 	cardCh := make(chan Card, maxScrapeWorker)
 
 	var wg sync.WaitGroup
@@ -695,30 +556,30 @@ func aggregate(cfg Config, r reducer) error {
 
 	go r.reduce(reducerCfg)
 
-	err := CardsStream(cfg, cardCh)
+	err := c.CardsStream(ctx, cfg, cardCh)
 
 	wg.Wait()
 
 	return err
 }
 
-func Cards(cfg Config) ([]Card, error) {
+func (c *Client) Cards(ctx context.Context, cfg Config) ([]Card, error) {
 	var reducer cardListReducer
-	err := aggregate(cfg, &reducer)
+	err := c.aggregate(ctx, cfg, &reducer)
 
 	return reducer.cards, err
 }
 
-func Boosters(cfg Config) (map[string]Booster, error) {
+func (c *Client) Boosters(ctx context.Context, cfg Config) (map[string]Booster, error) {
 	var reducer boosterReducer
-	err := aggregate(cfg, &reducer)
+	err := c.aggregate(ctx, cfg, &reducer)
 
 	return reducer.boosterMap, err
 }
 
 // ExpansionList returns a map of expansion numbers to their titles for the
 // specified language in the Config.
-func ExpansionList(cfg Config) (map[int]string, error) {
+func (c *Client) ExpansionList(ctx context.Context, cfg Config) (map[int]string, error) {
 	var siteCfg siteConfig
 	if c, ok := siteConfigs[cfg.Language]; !ok {
 		return nil, fmt.Errorf("unsupported language: %v", cfg.Language)
@@ -727,31 +588,19 @@ func ExpansionList(cfg Config) (map[int]string, error) {
 		slog.Info(fmt.Sprintf("Fetching %v expansion list", cfg.Language))
 	}
 
-	prepareBiri(siteCfg)
-	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
-	if err != nil {
-		err = fmt.Errorf("failed to get new cookiejar: %v", err)
-		slog.Error(err.Error())
-		return nil, err
-	}
-
-	biri.ProxyStart()
-
-	proxy := biri.GetClient()
-	slog.Debug("Got proxy")
-	proxy.Client.Jar = jar
-
-	resp, err := postFormWithHeaders(proxy.Client, siteCfg.cardListURL, url.Values{}, siteCfg.cardListURL)
+	respData, err := c.request(ctx, requestOptions{
+		Method:  http.MethodPost,
+		URL:     siteCfg.cardListURL,
+		Referer: siteCfg.cardListURL,
+		Form:    url.Values{},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read page: %v", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %v", resp.StatusCode)
-	}
-	proxy.Readd()
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	resp := responseToHTTPResponse(respData)
+	defer resp.Body.Close()
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(respData.Body))
 	if err != nil {
 		return nil, fmt.Errorf("goquery error for page %q: %v", resp.Request.URL, err)
 	}

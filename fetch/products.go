@@ -15,17 +15,18 @@
 package fetch
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"path"
 	"regexp"
 	"strings"
 
-	"github.com/Akenaide/biri"
 	"github.com/PuerkitoBio/goquery"
 )
 
-const ProductsUrl = "https://ws-tcg.com/products/page/"
+const ProductsURL = "https://ws-tcg.com/products/page/"
 
 var banProduct = []string{
 	"new_title_ws",
@@ -44,30 +45,16 @@ type ProductInfo struct {
 	SetCode     string
 }
 
-func getDocument(url string) *goquery.Document {
-	var doc *goquery.Document
-
-	for {
-		var err error
-		proxy := biri.GetClient()
-		resp, err := proxy.Client.Get(url)
-		if err != nil || resp.StatusCode != 200 {
-			slog.Error(fmt.Sprintf("Error fetching page: %v", err))
-			proxy.Ban()
-			continue
-		}
-		defer resp.Body.Close()
-		doc, err = goquery.NewDocumentFromReader(resp.Body)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Error parsing page: %v", err))
-			proxy.Ban()
-			continue
-		}
-		proxy.Readd()
-		break
+func (c *Client) getDocument(ctx context.Context, rawURL string, referer string) (*goquery.Document, error) {
+	resp, err := c.request(ctx, requestOptions{
+		Method:  "GET",
+		URL:     rawURL,
+		Referer: referer,
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return doc
+	return goquery.NewDocumentFromReader(bytes.NewReader(resp.Body))
 }
 
 func extractProductInfo(doc *goquery.Document) (ProductInfo, error) {
@@ -82,10 +69,7 @@ func extractProductInfo(doc *goquery.Document) (ProductInfo, error) {
 	licenceCode := matches[1]
 	doc.Find(".entry-content img").Each(func(i int, s *goquery.Selection) {
 		src, _ := s.Attr("src")
-		// Extract the filename from the path
 		filename := path.Base(src)
-
-		// Extract "W109" from the filename
 		parts := strings.Split(filename, "_")
 		if len(parts) >= 4 {
 			setCode = parts[2]
@@ -101,30 +85,45 @@ func extractProductInfo(doc *goquery.Document) (ProductInfo, error) {
 	}, nil
 }
 
-func Products(page string) []ProductInfo {
-	biri.Config.PingServer = "https://ws-tcg.com/"
-	biri.Config.TickMinuteDuration = 1
-	biri.Config.Timeout = 25
-	biri.ProxyStart()
+func (c *Client) Products(ctx context.Context, page string) ([]ProductInfo, error) {
+	doc, err := c.getDocument(ctx, ProductsURL+page, "")
+	if err != nil {
+		return nil, err
+	}
 
 	var productList []ProductInfo
-	doc := getDocument(ProductsUrl + page)
-
+	var firstErr error
 	doc.Find(".product-list .show-detail a").Each(func(i int, s *goquery.Selection) {
-		productDetail := s.AttrOr("href", "nope")
+		productDetail := s.AttrOr("href", "")
+		if productDetail == "" {
+			return
+		}
 		for _, ban := range banProduct {
 			if strings.Contains(productDetail, ban) {
 				return
 			}
 		}
+
 		slog.Info(fmt.Sprintf("Extract: %v", productDetail))
-		doc := getDocument(productDetail)
-		if productInfo, err := extractProductInfo(doc); err != nil {
-			slog.Error(fmt.Sprintf("Error getting product info: %v", err))
-		} else {
-			productList = append(productList, productInfo)
+		productDoc, err := c.getDocument(ctx, productDetail, ProductsURL+page)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			slog.Error("Error fetching product detail", "url", productDetail, "error", err)
+			return
 		}
+
+		productInfo, err := extractProductInfo(productDoc)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			slog.Error("Error getting product info", "url", productDetail, "error", err)
+			return
+		}
+		productList = append(productList, productInfo)
 	})
 
-	return productList
+	return productList, firstErr
 }

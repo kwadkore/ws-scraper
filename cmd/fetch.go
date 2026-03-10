@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -126,12 +127,17 @@ Use global switches to specify the set, by default it will fetch all sets.`,
 		}
 
 		slog.Debug("fetch called", "settings", viper.AllSettings())
+		client, err := newFetchClient()
+		if err != nil {
+			panic(fmt.Errorf("invalid scraper client settings: %v", err))
+		}
+		defer client.Close()
 
 		mode := viper.GetString("export")
 		slog.Info(fmt.Sprintf("Start write in mode: %v", mode))
 		switch mode {
 		case "booster":
-			bm, err := fetch.Boosters(cfg)
+			bm, err := client.Boosters(context.Background(), cfg)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Error fetching boosters: %v", err))
 			}
@@ -143,13 +149,13 @@ Use global switches to specify the set, by default it will fetch all sets.`,
 				wg.Add(1)
 				go writeCards(&wg, lang, cardCh)
 			}
-			err := fetch.CardsStream(cfg, cardCh)
+			err := client.CardsStream(context.Background(), cfg, cardCh)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Error fetching cards: %v", err))
 			}
 			wg.Wait()
 		case "expansionlist":
-			eMap, err := fetch.ExpansionList(cfg)
+			eMap, err := client.ExpansionList(context.Background(), cfg)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Error fetching expansion list: %v", err))
 			}

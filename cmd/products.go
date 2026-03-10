@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -39,7 +40,18 @@ It will output the ReleaseDate, Title, Image, SetCode, LicenceCode in a 'product
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("products called")
 
-		writeProducts(fetch.Products(cmd.Flag("page").Value.String()))
+		client, err := newFetchClient()
+		if err != nil {
+			slog.Error(fmt.Sprintf("Error creating scraper client: %v", err))
+			return
+		}
+		defer client.Close()
+
+		productList, err := client.Products(context.Background(), cmd.Flag("page").Value.String())
+		if err != nil {
+			slog.Error(fmt.Sprintf("Error fetching products: %v", err))
+		}
+		writeProducts(productList)
 	},
 }
 

@@ -3,7 +3,6 @@ module github.com/kwadkore/ws-scraper
 go 1.21
 
 require (
-	github.com/Akenaide/biri v1.4.0
 	github.com/PuerkitoBio/goquery v1.8.1
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/spf13/cobra v1.8.0

@@ -25,11 +25,19 @@ import (
 )
 
 var (
-	cfgFile     string
-	logLevel    string
-	serieNumber string
-	titleNumber string
-	neo         string
+	cfgFile        string
+	logLevel       string
+	serieNumber    string
+	titleNumber    string
+	neo            string
+	requestsPerSec float64
+	burst          int
+	netConcurrency int
+	maxRetries     int
+	proxyURL       string
+	cacheDir       string
+	cacheTTL       string
+	respectRobots  bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -99,6 +107,14 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&serieNumber, "expansion", "", "", "expansion number")
 	rootCmd.PersistentFlags().StringVarP(&titleNumber, "title", "t", "", "title number")
 	rootCmd.PersistentFlags().StringVarP(&neo, "neo", "n", "", "Neo standar by set")
+	rootCmd.PersistentFlags().Float64Var(&requestsPerSec, "rps", 1.0, "Global requests per second limit")
+	rootCmd.PersistentFlags().IntVar(&burst, "burst", 1, "Global burst size for requests")
+	rootCmd.PersistentFlags().IntVar(&netConcurrency, "net-concurrency", 1, "Maximum concurrent network requests")
+	rootCmd.PersistentFlags().IntVar(&maxRetries, "max-retries", 4, "Maximum retries per request")
+	rootCmd.PersistentFlags().StringVar(&proxyURL, "proxy-url", "", "Optional fixed upstream proxy URL")
+	rootCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "Optional cache directory for HTTP responses")
+	rootCmd.PersistentFlags().StringVar(&cacheTTL, "cache-ttl", "24h", "Cache TTL duration")
+	rootCmd.PersistentFlags().BoolVar(&respectRobots, "respect-robots", true, "Honor robots.txt and crawl-delay when available")
 }
 
 // initConfig reads in config file and ENV variables if set.
