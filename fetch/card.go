@@ -71,14 +71,14 @@ type Card struct {
 	// Color of the card. Should be either "BLUE", "GREEN", "RED", or "YELLOW".
 	// ...Except for the two purple cards (むらさきパプリス(PY/S38-125) and むらさきぷよ(PY/S38-120)).
 	Color string `json:"color"`
-	// Cost to play the card
-	Cost string `json:"cost,omitempty"`
+	// Stock cost to play the card.
+	Cost *int `json:"cost,omitempty"`
 	// Level required in order to play the card.
-	Level string `json:"level,omitempty"`
+	Level *int `json:"level,omitempty"`
 	// Power indicates the card's battle strength. Only valid for Character cards.
-	Power string `json:"power,omitempty"`
-	// Soul is an integer indicating how many soul points the card has. Only valid for Character cards.
-	Soul string `json:"soul,omitempty"`
+	Power *int `json:"power,omitempty"`
+	// Soul indicates how many soul points the card has. Only valid for Character cards.
+	Soul *int `json:"soul,omitempty"`
 	// Text describing the card's abilities.
 	Text []string `json:"text"`
 	// Traits indicating the attributes the card has. These are often referenced in card text.
@@ -134,11 +134,18 @@ var triggersMap = map[string]string{
 	"choice":   "CHOICE",
 }
 
-func filterDash(st string) string {
-	if strings.Contains(st, "-") {
-		return ""
+func parseNumericStat(st string) *int {
+	st = strings.TrimSpace(st)
+	if st == "" || strings.Contains(st, "-") {
+		return nil
 	}
-	return st
+
+	n, err := strconv.Atoi(st)
+	if err != nil {
+		return nil
+	}
+
+	return &n
 }
 
 // extractData extract data to card
@@ -257,11 +264,11 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		Language:      language.English.String(),
 		Type:          info["type"],
 		Name:          cardName,
-		Level:         filterDash(info["level"]),
-		Cost:          filterDash(info["cost"]),
+		Level:         parseNumericStat(info["level"]),
+		Cost:          parseNumericStat(info["cost"]),
 		FlavorText:    info["flavourText"],
 		Color:         info["color"],
-		Power:         filterDash(info["power"]),
+		Power:         parseNumericStat(info["power"]),
 		Rarity:        info["rarity"],
 		Text:          ability,
 	}
@@ -278,7 +285,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		card.Triggers = strings.Split(info["trigger"], " ")
 	}
 	if card.Type == "CH" {
-		card.Soul = info["soul"]
+		card.Soul = parseNumericStat(info["soul"])
 	}
 	return card
 }
@@ -389,11 +396,11 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 		Language:      language.Japanese.String(),
 		Type:          infos["type"],
 		Name:          strings.TrimSpace(mainHTML.Find("h4 span").First().Text()),
-		Level:         filterDash(infos["level"]),
+		Level:         parseNumericStat(infos["level"]),
 		FlavorText:    infos["flavourText"],
 		Color:         infos["color"],
-		Power:         filterDash(infos["power"]),
-		Cost:          filterDash(infos["cost"]),
+		Power:         parseNumericStat(infos["power"]),
+		Cost:          parseNumericStat(infos["cost"]),
 		Rarity:        infos["rarity"],
 		Text:          ability,
 	}
@@ -410,7 +417,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 		card.Triggers = strings.Split(infos["trigger"], " ")
 	}
 	if card.Type == "CH" {
-		card.Soul = infos["soul"]
+		card.Soul = parseNumericStat(infos["soul"])
 	}
 	return card
 }

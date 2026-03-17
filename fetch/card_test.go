@@ -9,6 +9,17 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+func intPtr(v int) *int {
+	return &v
+}
+
+func equalIntPtr(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
 func equalSlice(sliceA []string, sliceB []string) bool {
 	if len(sliceA) != len(sliceB) {
 		slog.Error(fmt.Sprintf("wrong len sliceA %v, len sliceB %v", len(sliceA), len(sliceB)))
@@ -60,17 +71,17 @@ func assertCardEqualsWithTitle(t *testing.T, title string, got, want Card) {
 	if got.Color != want.Color {
 		t.Errorf("%sIncorrect Colour: got %q, want %q", prefix, got.Color, want.Color)
 	}
-	if got.Level != want.Level {
-		t.Errorf("%sIncorrect Level: got %q, want %q", prefix, got.Level, want.Level)
+	if !equalIntPtr(got.Level, want.Level) {
+		t.Errorf("%sIncorrect Level: got %v, want %v", prefix, got.Level, want.Level)
 	}
-	if got.Cost != want.Cost {
-		t.Errorf("%sIncorrect Cost: got %q, want %q", prefix, got.Cost, want.Cost)
+	if !equalIntPtr(got.Cost, want.Cost) {
+		t.Errorf("%sIncorrect Cost: got %v, want %v", prefix, got.Cost, want.Cost)
 	}
-	if got.Power != want.Power {
-		t.Errorf("%sIncorrect Power: got %q, want %q", prefix, got.Power, want.Power)
+	if !equalIntPtr(got.Power, want.Power) {
+		t.Errorf("%sIncorrect Power: got %v, want %v", prefix, got.Power, want.Power)
 	}
-	if got.Soul != want.Soul {
-		t.Errorf("%sIncorrect Soul: got %q, want %q", prefix, got.Soul, want.Soul)
+	if !equalIntPtr(got.Soul, want.Soul) {
+		t.Errorf("%sIncorrect Soul: got %v, want %v", prefix, got.Soul, want.Soul)
 	}
 	if got.Rarity != want.Rarity {
 		t.Errorf("%sIncorrect Rarity: got %q, want %q", prefix, got.Rarity, want.Rarity)
@@ -154,19 +165,19 @@ func TestExtractData_jp(t *testing.T) {
 	if card.ID != "036SPMa" {
 		t.Errorf("got %v: expected 036SPMa", card.ID)
 	}
-	if card.Level != "2" {
+	if !equalIntPtr(card.Level, intPtr(2)) {
 		t.Errorf("got %v: expected 2", card.Level)
 	}
 	if card.Color != "GREEN" {
 		t.Errorf("got %v: expected GREEN", card.Color)
 	}
-	if card.Power != "6000" {
+	if !equalIntPtr(card.Power, intPtr(6000)) {
 		t.Errorf("got %v: expected 6000", card.Power)
 	}
-	if card.Soul != "2" {
+	if !equalIntPtr(card.Soul, intPtr(2)) {
 		t.Errorf("got %v: expected 2", card.Soul)
 	}
-	if card.Cost != "1" {
+	if !equalIntPtr(card.Cost, intPtr(1)) {
 		t.Errorf("got %v: expected 1", card.Cost)
 	}
 	if card.Type != "CH" {
@@ -233,12 +244,12 @@ func TestExtractDataEvent_jp(t *testing.T) {
 		t.Errorf("got %v: expected empty", card.Traits)
 	}
 
-	if card.Soul != "" {
-		t.Errorf("got %v: expected ''", card.Soul)
+	if card.Soul != nil {
+		t.Errorf("got %v: expected nil", card.Soul)
 	}
 
-	if card.Power != "" {
-		t.Errorf("got %v: expected ''", card.Power)
+	if card.Power != nil {
+		t.Errorf("got %v: expected nil", card.Power)
 	}
 }
 
@@ -286,11 +297,11 @@ func TestExtractDataCX_jp(t *testing.T) {
 		Color:         "YELLOW",
 		Language:      "ja",
 		Type:          "CX",
-		Soul:          "",
-		Level:         "",
-		Cost:          "",
+		Soul:          nil,
+		Level:         nil,
+		Cost:          nil,
 		FlavorText:    "楽しい気持ちは誰かといると生まれるものってこと！",
-		Power:         "",
+		Power:         nil,
 		Rarity:        "CR",
 		ImageURL:      "https://ws-tcg.com/wordpress/wp-content/images/cardlist/b/bd_w63/bd_w63_025.png",
 		Triggers:      []string{"SOUL", "RETURN"},
@@ -388,11 +399,11 @@ func TestExtractData_en(t *testing.T) {
 		Release:       "BCS2019",
 		ReleasePackID: "2019",
 		ID:            "03",
-		Level:         "0",
+		Level:         intPtr(0),
 		Color:         "GREEN",
-		Power:         "2000",
-		Soul:          "1",
-		Cost:          "0",
+		Power:         intPtr(2000),
+		Soul:          intPtr(1),
+		Cost:          intPtr(0),
 		Language:      "en",
 		Type:          "CH",
 		Rarity:        "PR",
@@ -492,11 +503,11 @@ func TestExtractData_en_multiIconAbility(t *testing.T) {
 		Type:          "CH",
 		Name:          "Aang: Learning Avatar State",
 		Color:         "YELLOW",
-		Soul:          "0",
-		Level:         "2",
-		Cost:          "1",
+		Soul:          intPtr(0),
+		Level:         intPtr(2),
+		Cost:          intPtr(1),
 		FlavorText:    "",
-		Power:         "1000",
+		Power:         intPtr(1000),
 		Rarity:        "SR",
 		ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/ATLA/BP/ATLA_WX04_007S.png",
 		Triggers:      []string{"SOUL"},
@@ -607,7 +618,7 @@ func TestExtractDataEvent_en(t *testing.T) {
 		t.Errorf("got %v: expected empty", card.Traits)
 	}
 
-	if card.Level != "2" {
+	if !equalIntPtr(card.Level, intPtr(2)) {
 		t.Errorf("got %v: expected 2", card.Level)
 	}
 
@@ -615,12 +626,12 @@ func TestExtractDataEvent_en(t *testing.T) {
 		t.Errorf("got %v: expected YELLOW", card.Color)
 	}
 
-	if card.Soul != "" {
-		t.Errorf("got %v: expected ''", card.Soul)
+	if card.Soul != nil {
+		t.Errorf("got %v: expected nil", card.Soul)
 	}
 
-	if card.Power != "" {
-		t.Errorf("got %v: expected ''", card.Power)
+	if card.Power != nil {
+		t.Errorf("got %v: expected nil", card.Power)
 	}
 }
 
@@ -714,16 +725,16 @@ func TestExtractDataCX_en(t *testing.T) {
 		t.Errorf("got %v: expected BLUE", card.Color)
 	}
 
-	if card.Soul != "" {
-		t.Errorf("got %v: expected ''", card.Soul)
+	if card.Soul != nil {
+		t.Errorf("got %v: expected nil", card.Soul)
 	}
 
-	if card.Level != "" {
-		t.Errorf("got %v: expected ''", card.Level)
+	if card.Level != nil {
+		t.Errorf("got %v: expected nil", card.Level)
 	}
 
-	if card.Cost != "" {
-		t.Errorf("got %v: expected ''", card.Cost)
+	if card.Cost != nil {
+		t.Errorf("got %v: expected nil", card.Cost)
 	}
 
 	expectedTrigger := []string{"SOUL", "GATE"}
@@ -829,11 +840,11 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Type:          "CH",
 				Name:          `"A Nice Change" Kanon Matsubara`,
 				Color:         "YELLOW",
-				Soul:          "1",
-				Level:         "0",
-				Cost:          "0",
+				Soul:          intPtr(1),
+				Level:         intPtr(0),
+				Cost:          intPtr(0),
 				FlavorText:    "All it takes is something small for people to change the way we think and act... That's all it took for us.",
-				Power:         "1000",
+				Power:         intPtr(1000),
 				Rarity:        "R",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/b/bd_en_w03/BD_EN_W03_004.png",
 				Triggers:      []string{},
@@ -926,11 +937,11 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Type:          "CX",
 				Name:          "Idol Theme Cup 2024",
 				Color:         "RED",
-				Soul:          "",
-				Level:         "",
-				Cost:          "",
+				Soul:          nil,
+				Level:         nil,
+				Cost:          nil,
 				FlavorText:    "",
-				Power:         "",
+				Power:         nil,
 				Rarity:        "PR",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/updates/PR/WS_TCPR_P01.png",
 				Triggers:      []string{"SOUL", "SOUL"},
@@ -1024,11 +1035,11 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Type:          "CH",
 				Name:          "Lie Ren",
 				Color:         "GREEN",
-				Soul:          "1",
-				Level:         "0",
-				Cost:          "0",
+				Soul:          intPtr(1),
+				Level:         intPtr(0),
+				Cost:          intPtr(0),
 				FlavorText:    "",
-				Power:         "500",
+				Power:         intPtr(500),
 				Rarity:        "PR",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/RWBY/RWBY_WX03_020PR.png",
 				Triggers:      []string{},
@@ -1121,11 +1132,11 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Type:          "CH",
 				Name:          "Moment Between the Two, Sally",
 				Color:         "BLUE",
-				Soul:          "1",
-				Level:         "1",
-				Cost:          "0",
+				Soul:          intPtr(1),
+				Level:         intPtr(1),
+				Cost:          intPtr(0),
 				FlavorText:    "",
-				Power:         "4000",
+				Power:         intPtr(4000),
 				Rarity:        "PR",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/updates/PR/BFR_BSL2021_03SPR.png",
 				Triggers:      []string{},
@@ -1218,11 +1229,11 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Type:          "CH",
 				Name:          "Triumphant Return, Rimuru",
 				Color:         "BLUE",
-				Soul:          "1",
-				Level:         "0",
-				Cost:          "0",
+				Soul:          intPtr(1),
+				Level:         intPtr(0),
+				Cost:          intPtr(0),
 				FlavorText:    "",
-				Power:         "2000",
+				Power:         intPtr(2000),
 				Rarity:        "SSP+",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/TSK2/TSK_S82_E070S.png",
 				Triggers:      []string{},
@@ -1313,11 +1324,11 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Type:          "CH",
 				Name:          "To Stand Side by Side, Sayo Hikawa",
 				Color:         "BLUE",
-				Soul:          "1",
-				Level:         "2",
-				Cost:          "1",
+				Soul:          intPtr(1),
+				Level:         intPtr(2),
+				Cost:          intPtr(1),
 				FlavorText:    "",
-				Power:         "2500",
+				Power:         intPtr(2500),
 				Rarity:        "N",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/BDCC/WE42_E096_N.png",
 				Triggers:      []string{"SOUL"},
@@ -1429,11 +1440,11 @@ func TestExtractData_en_improperColor(t *testing.T) {
 				Type:          "CH",
 				Name:          `"Fake Priest?" Heiter`,
 				Color:         "YELLOW",
-				Soul:          "1",
-				Level:         "2",
-				Cost:          "1",
+				Soul:          intPtr(1),
+				Level:         intPtr(2),
+				Cost:          intPtr(1),
 				FlavorText:    `Himmel: "That brat who said that to me is now a fake priest who just drinks all the time."`,
-				Power:         "4500",
+				Power:         intPtr(4500),
 				Rarity:        "C",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/SFN/S108_E020.png",
 				Triggers:      []string{"SOUL"},
