@@ -197,6 +197,62 @@ func TestExtractData_jp(t *testing.T) {
 	}
 }
 
+func TestExtractData_jp_purple(t *testing.T) {
+	html := `
+	<tr>
+<th><a href="/cardlist/?cardno=PY/S38-125&amp;l"><img src="/wordpress/wp-content/images/cardlist/p/py_s38/py_s38_125.png" alt="むらさきパプリス"></a></th>
+<td>
+<h4><a href="/cardlist/?cardno=PY/S38-125&amp;l" class=""><span class="highlight_target">
+むらさきパプリス</span>(<span class="highlight_target"><span class="highlight">PY/S38-125</span></span>)</a> -PRカード【Sサイド】<br></h4>
+<span class="unit">
+サイド：<img src="/wordpress/wp-content/images/cardlist/_partimages/s.gif"></span>
+<span class="unit">種類：キャラ</span>
+<span class="unit">レベル：0</span><br>
+<span class="unit">色：紫</span>
+<span class="unit">パワー：1000</span>
+<span class="unit">ソウル：<img src="/wordpress/wp-content/images/cardlist/_partimages/soul.gif"></span>
+<span class="unit">コスト：0</span><br>
+<span class="unit">レアリティ：PR</span>
+<span class="unit">トリガー：-</span>
+<span class="unit">特徴：<span class="highlight_target">ぷよ・動物</span></span><br>
+<span class="unit">フレーバー：むらさきパプリスが、<br>いっちばんかわいいでしょー！</span><br>
+<br>
+<span class="highlight_target">【永】 応援 このカードの前のあなたのキャラすべてに、パワーを＋500。</span>
+</td>
+</tr>
+	`
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	card := extractData(siteConfigs[Japanese], doc.Clone())
+	expectedCard := Card{
+		Name:          "むらさきパプリス",
+		SetID:         "PY",
+		SetName:       "PRカード【Sサイド】",
+		Side:          "S",
+		CardNumber:    "PY/S38-125",
+		Release:       "S38",
+		ReleasePackID: "38",
+		ID:            "125",
+		Color:         "PURPLE",
+		Language:      "ja",
+		Type:          "CH",
+		Soul:          intPtr(1),
+		Level:         intPtr(0),
+		Cost:          intPtr(0),
+		FlavorText:    "むらさきパプリスが、いっちばんかわいいでしょー！",
+		Power:         intPtr(1000),
+		Rarity:        "PR",
+		ImageURL:      "https://ws-tcg.com/wordpress/wp-content/images/cardlist/p/py_s38/py_s38_125.png",
+		Traits:        []string{"ぷよ", "動物"},
+		Text:          []string{"【永】 応援 このカードの前のあなたのキャラすべてに、パワーを＋500。"},
+	}
+	assertCardEquals(t, card, expectedCard)
+}
+
 func TestExtractDataEvent_jp(t *testing.T) {
 	chara := `
 	<th><a href="/cardlist/?cardno=BD/W63-022&amp;l"><img src="https://s3-ap-northeast-1.amazonaws.com/static.ws-tcg.com/wordpress/wp-content/cardimages/b/bd_w63/bd_w63_022.gif" alt="ミッシェルからの伝言"></a></th>

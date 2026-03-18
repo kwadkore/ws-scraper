@@ -134,6 +134,14 @@ var triggersMap = map[string]string{
 	"choice":   "CHOICE",
 }
 
+var jpTextColorMap = map[string]string{
+	"青": "BLUE",
+	"緑": "GREEN",
+	"赤": "RED",
+	"黄": "YELLOW",
+	"紫": "PURPLE",
+}
+
 func parseNumericStat(st string) *int {
 	st = strings.TrimSpace(st)
 	if st == "" || strings.Contains(st, "-") {
@@ -317,8 +325,19 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 		switch {
 		// Color
 		case strings.HasPrefix(txt, "色："):
-			_, colorName := path.Split(s.Children().AttrOr("src", "yay"))
-			infos["color"] = strings.ToUpper(strings.Split(colorName, ".")[0])
+			colorText := strings.TrimSpace(strings.TrimPrefix(txt, "色："))
+			if color, ok := jpTextColorMap[colorText]; ok {
+				infos["color"] = color
+			} else if colorText != "" && colorText != "-" && colorText != "－" {
+				infos["color"] = strings.ToUpper(colorText)
+			} else if colorSrc, ok := s.Children().Attr("src"); ok {
+				_, colorName := path.Split(colorSrc)
+				infos["color"] = strings.ToUpper(strings.Split(colorName, ".")[0])
+			} else {
+				if colorText != "" {
+					infos["color"] = strings.ToUpper(colorText)
+				}
+			}
 			// Card type
 		case strings.HasPrefix(txt, "種類："):
 			cType := strings.TrimSpace(strings.TrimPrefix(txt, "種類："))
