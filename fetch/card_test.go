@@ -50,6 +50,9 @@ func assertCardEqualsWithTitle(t *testing.T, title string, got, want Card) {
 	if got.SetName != want.SetName {
 		t.Errorf("%sIncorrect SetName: got %q, want %q", prefix, got.SetName, want.SetName)
 	}
+	if got.ExpansionName != want.ExpansionName {
+		t.Errorf("%sIncorrect ExpansionName: got %q, want %q", prefix, got.ExpansionName, want.ExpansionName)
+	}
 	if got.Side != want.Side {
 		t.Errorf("%sIncorrect Side: got %q, want %q", prefix, got.Side, want.Side)
 	}
@@ -231,7 +234,7 @@ func TestExtractData_jp_purple(t *testing.T) {
 	expectedCard := Card{
 		Name:          "むらさきパプリス",
 		SetID:         "PY",
-		SetName:       "PRカード【Sサイド】",
+		ExpansionName: "PRカード【Sサイド】",
 		Side:          "S",
 		CardNumber:    "PY/S38-125",
 		Release:       "S38",
@@ -344,7 +347,7 @@ func TestExtractDataCX_jp(t *testing.T) {
 	expectedCard := Card{
 		Name:          "キラキラのお日様",
 		SetID:         "BD",
-		SetName:       "「バンドリ！ ガールズバンドパーティ！」Vol.2",
+		ExpansionName: "「バンドリ！ ガールズバンドパーティ！」Vol.2",
 		Side:          "W",
 		CardNumber:    "BD/W63-025",
 		Release:       "W63",

@@ -38,8 +38,12 @@ type Card struct {
 	// SetID is the alphanumeric string found at the beginning of card numbers,
 	// before the "/"".
 	SetID string `json:"setId"`
-	// SetName is the official name of the set.
-	SetName       string `json:"setName"`
+	// SetName is the official name of the set/IP.
+	// It is currently unset by the scraper and is reserved for when the websites
+	// expose one or the scraper is updated to find it.
+	SetName string `json:"setName"`
+	// ExpansionName is the normalized product/expansion title shown on card pages
+	// (eg. "Love Live! Vol.2").
 	ExpansionName string `json:"expansionName"`
 	// Side is either "W" for Weiss, or "S" for Schwarz.
 	Side string `json:"side"`
@@ -311,7 +315,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 
 	setID, release, releasePackID, cardID := parseCardNumber(cardNumber)
 
-	setName := strings.TrimSpace(strings.Split(mainHTML.Find("h4").Text(), ") -")[1])
+	expansionName := strings.TrimSpace(strings.Split(mainHTML.Find("h4").Text(), ") -")[1])
 	imageCardURL, _ := mainHTML.Find("a img").Attr("src")
 
 	ability, err := extractAbilities(mainHTML.Find("span").Last())
@@ -407,7 +411,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 	card := Card{
 		CardNumber:    cardNumber,
 		SetID:         setID,
-		SetName:       setName,
+		ExpansionName: expansionName,
 		Side:          infos["side"],
 		Release:       release,
 		ReleasePackID: releasePackID,
