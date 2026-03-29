@@ -102,6 +102,9 @@ type Card struct {
 	Traits []string `json:"traits,omitempty"`
 	// Triggers that the card has and are activated during trigger checks.
 	Triggers []Trigger `json:"triggers,omitempty"`
+	// ParseFailures captures non-fatal parsing issues where the remaining card data
+	// still looked trustworthy enough to keep.
+	ParseFailures []string `json:"parseFailures,omitempty"`
 
 	FlavorText string      `json:"flavorText,omitempty"`
 	ImageURL   string      `json:"imageURL"`
@@ -141,6 +144,7 @@ var baseRarity = []string{
 var triggersMap = map[string]Trigger{
 	"soul":      TriggerSoul,
 	"salvage":   TriggerComeback,
+	"comeback":  TriggerComeback,
 	"draw":      TriggerDraw,
 	"stock":     TriggerPool,
 	"treasure":  TriggerTreasure,
@@ -236,6 +240,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 	imageCardURL, _ := mainHTML.Find("div.image img").Attr("src")
 
 	info := make(map[string]string)
+	cardFailures := make([]string, 0)
 	mainHTML.Find("dl").Each(func(i int, s *goquery.Selection) {
 		dt := strings.TrimSpace(s.Find("dt").First().Text())
 		dd := s.Find("dd").First()
@@ -283,10 +288,11 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		case "Traits":
 			info["specialAttribute"] = ddText
 		case "Trigger":
-			triggers := parseTriggers(dd, cardNumber)
+			triggers, failures := parseTriggers(dd, cardNumber)
 			if len(triggers) != 0 {
 				info["trigger"] = strings.Join(triggersToStrings(triggers), " ")
 			}
+			cardFailures = append(cardFailures, failures...)
 		default:
 			slog.With("cardnumber", cardNumber).Error(fmt.Sprintf("Unknown detail: %v", dt))
 		}
@@ -323,6 +329,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		Power:         parseNumericStat(info["power"]),
 		Rarity:        info["rarity"],
 		Text:          ability,
+		ParseFailures: cardFailures,
 	}
 	if fullURL, err := joinPath(config.baseURL, imageCardURL); err == nil {
 		card.ImageURL = fullURL.String()
@@ -363,6 +370,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 	}
 
 	infos := make(map[string]string)
+	cardFailures := make([]string, 0)
 	mainHTML.Find(".unit").Each(func(i int, s *goquery.Selection) {
 		txt := strings.TrimSpace(s.Text())
 		switch {
@@ -425,10 +433,11 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 			infos["soul"] = strconv.Itoa(s.Children().Length())
 			// Trigger
 		case strings.HasPrefix(txt, "トリガー："):
-			triggers := parseTriggers(s, rawCardNumber)
+			triggers, failures := parseTriggers(s, rawCardNumber)
 			if len(triggers) != 0 {
 				infos["trigger"] = strings.Join(triggersToStrings(triggers), " ")
 			}
+			cardFailures = append(cardFailures, failures...)
 			// Trait
 		case strings.HasPrefix(txt, "特徴："):
 			var res bytes.Buffer
@@ -463,6 +472,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 		Cost:          parseNumericStat(infos["cost"]),
 		Rarity:        infos["rarity"],
 		Text:          ability,
+		ParseFailures: cardFailures,
 	}
 	if fullURL, err := joinPath(config.baseURL, imageCardURL); err == nil {
 		card.ImageURL = fullURL.String()
@@ -531,12 +541,13 @@ func triggersToStrings(triggers []Trigger) []string {
 	return out
 }
 
-func parseTriggers(node *goquery.Selection, cardNumber string) []Trigger {
+func parseTriggers(node *goquery.Selection, cardNumber string) ([]Trigger, []string) {
 	if node == nil {
-		return nil
+		return nil, nil
 	}
 
 	triggers := make([]Trigger, 0, node.Children().Length())
+	failures := make([]string, 0)
 	node.Children().Each(func(i int, s *goquery.Selection) {
 		src, ok := s.Attr("src")
 		if !ok {
@@ -547,13 +558,15 @@ func parseTriggers(node *goquery.Selection, cardNumber string) []Trigger {
 		triggerName := strings.Split(triggerFile, ".")[0]
 		trigger, ok := triggersMap[triggerName]
 		if !ok {
-			slog.With("cardnumber", cardNumber).Warn("Unknown trigger icon", "trigger", triggerName)
+			failure := fmt.Sprintf("unknown trigger icon: %s", triggerName)
+			slog.With("cardnumber", cardNumber, "trigger", triggerName).Warn("Non-fatal trigger parse failure")
+			failures = append(failures, failure)
 			return
 		}
 
 		triggers = append(triggers, trigger)
 	})
-	return triggers
+	return triggers, failures
 }
 
 func extractAbilities(abilityNode *goquery.Selection) ([]string, error) {

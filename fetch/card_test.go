@@ -107,6 +107,9 @@ func assertCardEqualsWithTitle(t *testing.T, title string, got, want Card) {
 	if !equalSlice(got.Triggers, want.Triggers) {
 		t.Errorf("%sIncorrect Trigger: got %v, want %v", prefix, got.Triggers, want.Triggers)
 	}
+	if !equalSlice(got.ParseFailures, want.ParseFailures) {
+		t.Errorf("%sIncorrect ParseFailures: got %v, want %v", prefix, got.ParseFailures, want.ParseFailures)
+	}
 	if !equalSlice(got.Text, want.Text) {
 		t.Errorf("%sIncorrect Ability: got\n %v,\nwant\n %v", prefix, got.Text, want.Text)
 	}
@@ -727,6 +730,60 @@ func TestExtractData_en_newTriggers(t *testing.T) {
 	}
 }
 
+func TestExtractData_en_comebackTrigger(t *testing.T) {
+	html := `
+<div class="p-cards__detail-wrapper">
+	<div class="p-cards__detail-wrapper-inner">
+		<div class="image"><img src="/wp/wp-content/images/cardimages/TST/TST_W01_002.png" alt="Comeback Trigger Test" decoding="async"></div>
+		<div class="p-cards__detail-textarea">
+			<p class="number">TST/W01-002</p>
+			<p class="ttl u-mt-14 u-mt-16-sp">Comeback Trigger Test</p>
+			<div class="p-cards__detail-type u-mt-22 u-mt-40-sp">
+				<dl><dt>Expansion</dt><dd>Trigger Test</dd></dl>
+				<dl><dt>Traits</dt><dd>Test</dd></dl>
+				<dl><dt>Card Type</dt><dd>Climax</dd></dl>
+				<dl><dt>Rarity</dt><dd>CX</dd></dl>
+				<dl><dt>Side</dt><dd><img src="/cardlist/partimages/w.gif" alt="" decoding="async"></dd></dl>
+				<dl><dt>Color</dt><dd><img src="/wp/wp-content/images/partimages/red.gif"></dd></dl>
+			</div>
+			<div class="p-cards__detail-status u-mt-22 u-mt-40-sp">
+				<dl><dt>Level</dt><dd>-</dd></dl>
+				<dl><dt>Cost</dt><dd>-</dd></dl>
+				<dl><dt>Power</dt><dd>-</dd></dl>
+				<dl><dt>Trigger</dt><dd><img src="/wp/wp-content/images/partimages/comeback.gif"></dd></dl>
+				<dl><dt>Soul</dt><dd>-</dd></dl>
+			</div>
+			<div class="p-cards__detail u-mt-22 u-mt-40-sp">
+				<p>【CONT】 All of your characters get +1000 power.<br>(<img src="/wp/wp-content/images/partimages/comeback.gif">: Return 1 character from your waiting room to your hand)</p>
+			</div>
+			<div class="p-cards__detail-serif u-mt-22 u-mt-40-sp">
+				<p>-</p>
+			</div>
+		</div>
+	</div>
+</div>
+`
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	card := extractData(siteConfigs[English], doc.Clone())
+	expectedTriggers := []Trigger{TriggerComeback}
+	if !equalSlice(card.Triggers, expectedTriggers) {
+		t.Errorf("got %v: expected %v", card.Triggers, expectedTriggers)
+	}
+
+	expectedAbility := []string{
+		"【CONT】 All of your characters get +1000 power.",
+		"([COMEBACK]: Return 1 character from your waiting room to your hand)",
+	}
+	if !equalSlice(card.Text, expectedAbility) {
+		t.Errorf("got %v: expected %v", card.Text, expectedAbility)
+	}
+}
+
 func TestExtractData_jp_newTriggers(t *testing.T) {
 	html := `
 <tr>
@@ -875,6 +932,75 @@ func TestExtractData_en_multiSideCard(t *testing.T) {
 	}
 
 	card := extractData(siteConfigs[English], doc.Clone())
+	assertCardEquals(t, card, expectedCard)
+}
+
+func TestExtractData_en_triggerParseFailureIsNonFatal(t *testing.T) {
+	html := `
+<div class="p-cards__detail-wrapper">
+	<div class="p-cards__detail-wrapper-inner">
+		<div class="image"><img src="/wp/wp-content/images/cardimages/TST/TST_W01_003.png" alt="Trigger Failure Test" decoding="async"></div>
+		<div class="p-cards__detail-textarea">
+			<p class="number">TST/W01-003</p>
+			<p class="ttl u-mt-14 u-mt-16-sp">Trigger Failure Test</p>
+			<div class="p-cards__detail-type u-mt-22 u-mt-40-sp">
+				<dl><dt>Expansion</dt><dd>Trigger Test</dd></dl>
+				<dl><dt>Traits</dt><dd>Test・Benign</dd></dl>
+				<dl><dt>Card Type</dt><dd>Character</dd></dl>
+				<dl><dt>Rarity</dt><dd>R</dd></dl>
+				<dl><dt>Side</dt><dd><img src="/cardlist/partimages/w.gif" alt="" decoding="async"></dd></dl>
+				<dl><dt>Color</dt><dd><img src="/wp/wp-content/images/partimages/yellow.gif"></dd></dl>
+			</div>
+			<div class="p-cards__detail-status u-mt-22 u-mt-40-sp">
+				<dl><dt>Level</dt><dd>1</dd></dl>
+				<dl><dt>Cost</dt><dd>0</dd></dl>
+				<dl><dt>Power</dt><dd>5000</dd></dl>
+				<dl><dt>Trigger</dt><dd><img src="/wp/wp-content/images/partimages/yellow.gif"><img src="/wp/wp-content/images/partimages/soul.gif"></dd></dl>
+				<dl><dt>Soul</dt><dd><img src="/wp/wp-content/images/partimages/soul.gif"></dd></dl>
+			</div>
+			<div class="p-cards__detail u-mt-22 u-mt-40-sp">
+				<p>【AUTO】 When this card attacks, this card gets +1000 power until end of turn.</p>
+			</div>
+			<div class="p-cards__detail-serif u-mt-22 u-mt-40-sp">
+				<p>-</p>
+			</div>
+		</div>
+	</div>
+</div>
+`
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	card := extractData(siteConfigs[English], doc.Clone())
+	expectedCard := Card{
+		CardNumber:    "TST/W01-003",
+		SetID:         "TST",
+		ExpansionName: "Trigger Test",
+		Sides:         []Side{SideWeiss},
+		Release:       "W01",
+		ReleasePackID: "01",
+		ID:            "003",
+		Language:      "en",
+		Type:          "CH",
+		Name:          "Trigger Failure Test",
+		Color:         "YELLOW",
+		Soul:          intPtr(1),
+		Level:         intPtr(1),
+		Cost:          intPtr(0),
+		Power:         intPtr(5000),
+		Rarity:        "R",
+		ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/TST/TST_W01_003.png",
+		Triggers:      []Trigger{TriggerSoul},
+		ParseFailures: []string{"unknown trigger icon: yellow"},
+		Traits:        []string{"Test", "Benign"},
+		Text: []string{
+			"【AUTO】 When this card attacks, this card gets +1000 power until end of turn.",
+		},
+	}
+
 	assertCardEquals(t, card, expectedCard)
 }
 
