@@ -75,6 +75,26 @@ func writeBoosters(lang language.Tag, boosters map[string]fetch.Booster) {
 	}
 }
 
+func writeDeckRules(deckRules fetch.DeckRules, lang fetch.SiteLanguage) {
+	res, errMarshal := json.Marshal(deckRules)
+	if errMarshal != nil {
+		slog.Error(fmt.Sprintf("error marshalling: %v", errMarshal))
+		return
+	}
+
+	var buffer bytes.Buffer
+	out, err := os.Create(fmt.Sprintf("deck-rules_%v.json", lang.String()))
+	if err != nil {
+		slog.Error(fmt.Sprintf("error writing: %v", err))
+		return
+	}
+	defer out.Close()
+
+	json.Indent(&buffer, res, "", "\t")
+	buffer.WriteTo(out)
+	slog.Debug("Finished writing deck rules")
+}
+
 // fetchCmd represents the fetch command
 var fetchCmd = &cobra.Command{
 	Use:   "fetch",
@@ -171,6 +191,14 @@ Use global switches to specify the set, by default it will fetch all sets.`,
 					fmt.Printf("\t%d: %s\n", e, eMap[e])
 				}
 			}
+		case "deckrules":
+			rules, err := client.DeckRules(context.Background(), fetch.DeckRulesConfig{
+				Language: cfg.Language,
+			})
+			if err != nil {
+				slog.Error(fmt.Sprintf("Error fetching deck rules: %v", err))
+			}
+			writeDeckRules(rules, cfg.Language)
 		default:
 			panic(fmt.Sprintf("Unsupported export mode: %q", mode))
 		}
@@ -194,7 +222,7 @@ func init() {
 	fetchCmd.Flags().IntP("pagestart", "p", 0, "Start scanning from page #. Skip everything else before this page")
 	fetchCmd.Flags().BoolP("reverse", "r", false, "Reverse order")
 	fetchCmd.Flags().BoolP("allrarity", "a", false, "get all rarity (sp, ssp, sbr, etc...)")
-	fetchCmd.Flags().StringP("export", "e", "card", "export value: card, booster, expansionlist, all")
+	fetchCmd.Flags().StringP("export", "e", "card", "export value: card, booster, deckrules, expansionlist, all")
 	fetchCmd.Flags().String("lang", "ja", "Site language to pull from. Options are en or ja.")
 	fetchCmd.Flags().BoolP("recent", "", false, "get all recent products")
 
