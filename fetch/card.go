@@ -47,7 +47,7 @@ type Card struct {
 	ExpansionName string `json:"expansionName"`
 	// Sides contains the card's side ("W" for Weiss, "S" for Schwarz).
 	// Some cards are dual-sided (eg. Gso/WS02-124SP and Gso/WS02-E124SP).
-	Sides []string `json:"sides,omitempty"`
+	Sides []Side `json:"sides,omitempty"`
 	// Release typically consists of the card's side, followed by a number
 	// (the release pack ID) indicating which consecutive release for the relative
 	// side the release is.
@@ -69,13 +69,13 @@ type Card struct {
 	Language string `json:"language"`
 
 	// Type can be either "CH" for character, "EV" for event, or "CX" for climax.
-	Type string `json:"type"`
+	Type CardType `json:"type"`
 
 	// Name of the card.
 	Name string `json:"name"`
 	// Color of the card. Should be either "BLUE", "GREEN", "RED", or "YELLOW".
 	// ...Except for the two purple cards (むらさきパプリス(PY/S38-125) and むらさきぷよ(PY/S38-120)).
-	Color string `json:"color"`
+	Color CardColor `json:"color"`
 	// Stock cost to play the card.
 	Cost *int `json:"cost,omitempty"`
 	// Level required in order to play the card.
@@ -139,12 +139,12 @@ var triggersMap = map[string]string{
 	"choice":   "CHOICE",
 }
 
-var jpTextColorMap = map[string]string{
-	"青": "BLUE",
-	"緑": "GREEN",
-	"赤": "RED",
-	"黄": "YELLOW",
-	"紫": "PURPLE",
+var jpTextColorMap = map[string]CardColor{
+	"青": CardColorBlue,
+	"緑": CardColorGreen,
+	"赤": CardColorRed,
+	"黄": CardColorYellow,
+	"紫": CardColorPurple,
 }
 
 func parseNumericStat(st string) *int {
@@ -161,12 +161,12 @@ func parseNumericStat(st string) *int {
 	return &n
 }
 
-func parseSides(sideNode *goquery.Selection) []string {
+func parseSides(sideNode *goquery.Selection) []Side {
 	if sideNode == nil {
 		return nil
 	}
 
-	found := map[string]bool{}
+	found := map[Side]bool{}
 	sideNode.Find("img").Each(func(i int, s *goquery.Selection) {
 		src, ok := s.Attr("src")
 		if !ok {
@@ -175,18 +175,18 @@ func parseSides(sideNode *goquery.Selection) []string {
 		_, sideName := path.Split(src)
 		switch strings.ToUpper(strings.Split(sideName, ".")[0]) {
 		case "W":
-			found["W"] = true
+			found[SideWeiss] = true
 		case "S":
-			found["S"] = true
+			found[SideSchwarz] = true
 		}
 	})
 
-	var sides []string
-	if found["W"] {
-		sides = append(sides, "W")
+	var sides []Side
+	if found[SideWeiss] {
+		sides = append(sides, SideWeiss)
 	}
-	if found["S"] {
-		sides = append(sides, "S")
+	if found[SideSchwarz] {
+		sides = append(sides, SideSchwarz)
 	}
 	return sides
 }
@@ -230,11 +230,11 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		case "Card Type":
 			switch ddText {
 			case "Event":
-				info["type"] = "EV"
+				info["type"] = string(CardTypeEvent)
 			case "Character":
-				info["type"] = "CH"
+				info["type"] = string(CardTypeCharacter)
 			case "Climax":
-				info["type"] = "CX"
+				info["type"] = string(CardTypeClimax)
 			}
 		case "Color":
 			if u, ok := dd.Find("img").First().Attr("src"); ok {
@@ -263,7 +263,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 				slog.With("cardnumber", cardNumber).Error("Failed to get side")
 				return
 			}
-			info["sides"] = strings.Join(sides, " ")
+			info["sides"] = strings.Join(sidesToStrings(sides), " ")
 		case "Soul":
 			info["soul"] = strconv.Itoa(dd.Children().Length())
 		case "Traits":
@@ -300,17 +300,17 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		// TODO: Figure out how to get EN set name. It's no longer on the card details page
 		// SetName:     setName,
 		ExpansionName: info["expansion"],
-		Sides:         strings.Fields(info["sides"]),
+		Sides:         parseSideFields(info["sides"]),
 		Release:       release,
 		ReleasePackID: releasePackID,
 		ID:            cardID,
 		Language:      language.English.String(),
-		Type:          info["type"],
+		Type:          CardType(info["type"]),
 		Name:          cardName,
 		Level:         parseNumericStat(info["level"]),
 		Cost:          parseNumericStat(info["cost"]),
 		FlavorText:    info["flavourText"],
-		Color:         info["color"],
+		Color:         CardColor(info["color"]),
 		Power:         parseNumericStat(info["power"]),
 		Rarity:        info["rarity"],
 		Text:          ability,
@@ -327,7 +327,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 	if info["trigger"] != "" {
 		card.Triggers = strings.Split(info["trigger"], " ")
 	}
-	if card.Type == "CH" {
+	if card.Type == CardTypeCharacter {
 		card.Soul = parseNumericStat(info["soul"])
 	}
 	return card
@@ -362,7 +362,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 		case strings.HasPrefix(txt, "色："):
 			colorText := strings.TrimSpace(strings.TrimPrefix(txt, "色："))
 			if color, ok := jpTextColorMap[colorText]; ok {
-				infos["color"] = color
+				infos["color"] = string(color)
 			} else if colorText != "" && colorText != "-" && colorText != "－" {
 				infos["color"] = strings.ToUpper(colorText)
 			} else if colorSrc, ok := s.Children().Attr("src"); ok {
@@ -379,11 +379,11 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 
 			switch cType {
 			case "イベント":
-				infos["type"] = "EV"
+				infos["type"] = string(CardTypeEvent)
 			case "キャラ":
-				infos["type"] = "CH"
+				infos["type"] = string(CardTypeCharacter)
 			case "クライマックス":
-				infos["type"] = "CX"
+				infos["type"] = string(CardTypeClimax)
 			}
 			// Cost
 		case strings.HasPrefix(txt, "コスト："):
@@ -411,7 +411,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 			if len(sides) == 0 {
 				break
 			}
-			infos["sides"] = strings.Join(sides, " ")
+			infos["sides"] = strings.Join(sidesToStrings(sides), " ")
 			// Soul
 		case strings.HasPrefix(txt, "ソウル："):
 			infos["soul"] = strconv.Itoa(s.Children().Length())
@@ -446,16 +446,16 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 		CardNumber:    cardNumber,
 		SetID:         setID,
 		ExpansionName: expansionName,
-		Sides:         strings.Fields(infos["sides"]),
+		Sides:         parseSideFields(infos["sides"]),
 		Release:       release,
 		ReleasePackID: releasePackID,
 		ID:            cardID,
 		Language:      language.Japanese.String(),
-		Type:          infos["type"],
+		Type:          CardType(infos["type"]),
 		Name:          strings.TrimSpace(mainHTML.Find("h4 span").First().Text()),
 		Level:         parseNumericStat(infos["level"]),
 		FlavorText:    infos["flavourText"],
-		Color:         infos["color"],
+		Color:         CardColor(infos["color"]),
 		Power:         parseNumericStat(infos["power"]),
 		Cost:          parseNumericStat(infos["cost"]),
 		Rarity:        infos["rarity"],
@@ -473,10 +473,35 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 	if infos["trigger"] != "" {
 		card.Triggers = strings.Split(infos["trigger"], " ")
 	}
-	if card.Type == "CH" {
+	if card.Type == CardTypeCharacter {
 		card.Soul = parseNumericStat(infos["soul"])
 	}
 	return card
+}
+
+func parseSideFields(s string) []Side {
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return nil
+	}
+
+	sides := make([]Side, 0, len(fields))
+	for _, field := range fields {
+		sides = append(sides, Side(field))
+	}
+	return sides
+}
+
+func sidesToStrings(sides []Side) []string {
+	if len(sides) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(sides))
+	for _, side := range sides {
+		out = append(out, string(side))
+	}
+	return out
 }
 
 func extractAbilities(abilityNode *goquery.Selection) ([]string, error) {

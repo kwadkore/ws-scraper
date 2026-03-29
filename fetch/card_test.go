@@ -20,7 +20,7 @@ func equalIntPtr(a, b *int) bool {
 	return *a == *b
 }
 
-func equalSlice(sliceA []string, sliceB []string) bool {
+func equalSlice[T comparable](sliceA []T, sliceB []T) bool {
 	if len(sliceA) != len(sliceB) {
 		slog.Error(fmt.Sprintf("wrong len sliceA %v, len sliceB %v", len(sliceA), len(sliceB)))
 		return false
@@ -159,7 +159,7 @@ func TestExtractData_jp(t *testing.T) {
 	if card.SetID != "BD" {
 		t.Errorf("got %v: expected BD", card.SetID)
 	}
-	if !equalSlice(card.Sides, []string{"W"}) {
+	if !equalSlice(card.Sides, []Side{SideWeiss}) {
 		t.Errorf("got %v: expected [W]", card.Sides)
 	}
 	if card.Release != "W63" {
@@ -235,7 +235,7 @@ func TestExtractData_jp_purple(t *testing.T) {
 		Name:          "むらさきパプリス",
 		SetID:         "PY",
 		ExpansionName: "PRカード【Sサイド】",
-		Sides:         []string{"S"},
+		Sides:         []Side{SideSchwarz},
 		CardNumber:    "PY/S38-125",
 		Release:       "S38",
 		ReleasePackID: "38",
@@ -290,7 +290,7 @@ func TestExtractData_jp_multiSideCard(t *testing.T) {
 		Name:          "巡り合う二人 キリト＆アスナ",
 		SetID:         "Gso",
 		ExpansionName: "電撃文庫",
-		Sides:         []string{"W", "S"},
+		Sides:         []Side{SideWeiss, SideSchwarz},
 		CardNumber:    "Gso/WS02-124SP",
 		Release:       "WS02",
 		ReleasePackID: "02",
@@ -409,7 +409,7 @@ func TestExtractDataCX_jp(t *testing.T) {
 		Name:          "キラキラのお日様",
 		SetID:         "BD",
 		ExpansionName: "「バンドリ！ ガールズバンドパーティ！」Vol.2",
-		Sides:         []string{"W"},
+		Sides:         []Side{SideWeiss},
 		CardNumber:    "BD/W63-025",
 		Release:       "W63",
 		ReleasePackID: "63",
@@ -515,7 +515,7 @@ func TestExtractData_en(t *testing.T) {
 		ExpansionName: "PR Card 【Schwarz Side】",
 		CardNumber:    "FS/BCS2019-03",
 		SetID:         "FS",
-		Sides:         []string{"S"},
+		Sides:         []Side{SideSchwarz},
 		Release:       "BCS2019",
 		ReleasePackID: "2019",
 		ID:            "03",
@@ -615,7 +615,7 @@ func TestExtractData_en_multiIconAbility(t *testing.T) {
 		CardNumber:    "ATLA/WX04-007S",
 		SetID:         "ATLA",
 		ExpansionName: "Avatar: The Last Airbender",
-		Sides:         []string{"W"},
+		Sides:         []Side{SideWeiss},
 		Release:       "WX04",
 		ReleasePackID: "WX",
 		ID:            "007S",
@@ -723,7 +723,7 @@ func TestExtractData_en_multiSideCard(t *testing.T) {
 		CardNumber:    "Gso/WS02-E124SP",
 		SetID:         "Gso",
 		ExpansionName: "Dengeki Bunko",
-		Sides:         []string{"W", "S"},
+		Sides:         []Side{SideWeiss, SideSchwarz},
 		Release:       "WS02",
 		ReleasePackID: "02",
 		ID:            "E124SP",
@@ -1060,7 +1060,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "BD/EN-W03-004",
 				SetID:         "BD",
 				ExpansionName: "BanG Dream! Girls Band Party! MULTI LIVE",
-				Sides:         []string{"W"},
+				Sides:         []Side{SideWeiss},
 				Release:       "EN-W03",
 				ReleasePackID: "03",
 				ID:            "004",
@@ -1157,7 +1157,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "WS/TCPR-P01",
 				SetID:         "WS",
 				ExpansionName: "PR Card 【Weiẞ Side】",
-				Sides:         []string{"W"},
+				Sides:         []Side{SideWeiss},
 				Release:       "TCPR",
 				ReleasePackID: "",
 				ID:            "P01",
@@ -1255,7 +1255,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "RWBY/BRO2021-01 PR",
 				SetID:         "RWBY",
 				ExpansionName: "PR Card 【Weiẞ Side】",
-				Sides:         []string{"W"},
+				Sides:         []Side{SideWeiss},
 				Release:       "BRO2021",
 				ReleasePackID: "2021",
 				ID:            "01 PR",
@@ -1352,7 +1352,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "BFR/BSL2021-03S",
 				SetID:         "BFR",
 				ExpansionName: "PR Card 【Schwarz Side】",
-				Sides:         []string{"S"},
+				Sides:         []Side{SideSchwarz},
 				Release:       "BSL2021",
 				ReleasePackID: "2021",
 				ID:            "03S",
@@ -1449,7 +1449,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "TSK/S82-E070SSP+",
 				SetID:         "TSK",
 				ExpansionName: "That Time I Got Reincarnated as a Slime Vol.2",
-				Sides:         []string{"S"},
+				Sides:         []Side{SideSchwarz},
 				Release:       "S82",
 				ReleasePackID: "82",
 				ID:            "E070SSP+",
@@ -1544,7 +1544,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "BD/WE42-E096 N",
 				SetID:         "BD",
 				ExpansionName: "[EX] Bang Dream! Girls Band Party! Countdown Collection",
-				Sides:         []string{"W"},
+				Sides:         []Side{SideWeiss},
 				Release:       "WE42",
 				ReleasePackID: "42",
 				ID:            "E096 N",
@@ -1660,7 +1660,7 @@ func TestExtractData_en_improperColor(t *testing.T) {
 				CardNumber:    "SFN/S108-E020",
 				SetID:         "SFN",
 				ExpansionName: "Frieren: Beyond Journey’s End",
-				Sides:         []string{"S"},
+				Sides:         []Side{SideSchwarz},
 				Release:       "S108",
 				ReleasePackID: "108",
 				ID:            "E020",

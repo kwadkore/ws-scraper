@@ -52,7 +52,7 @@ type TitleDeckGroup struct {
 	// CanonicalName is the normalized title family name for this group.
 	CanonicalName string `json:"canonicalName"`
 	// Side is the side this group belongs to: "W" for Weiss or "S" for Schwarz.
-	Side string `json:"side"`
+	Side Side `json:"side"`
 	// AllowedCodes are the set/title codes that may be used in this group.
 	AllowedCodes []string `json:"allowedCodes"`
 	// Aliases contains alternate labels for the same title family.
@@ -174,9 +174,9 @@ func parseEnglishDeckConstruction(doc *goquery.Document) ([]TitleDeckGroup, erro
 
 	var groups []TitleDeckGroup
 	tables.Each(func(i int, table *goquery.Selection) {
-		side := "W"
+		side := SideWeiss
 		if i == 1 {
-			side = "S"
+			side = SideSchwarz
 		}
 		table.Find("tr").Each(func(rowIdx int, tr *goquery.Selection) {
 			if rowIdx == 0 {
@@ -249,10 +249,10 @@ func parseJapaneseDeckConstruction(doc *goquery.Document) ([]TitleDeckGroup, err
 	var groups []TitleDeckGroup
 	for _, table := range tables {
 		header := normalizeWhitespace(table.Find("tr").First().Text())
-		side := "W"
+		side := SideWeiss
 		sideNote := "ヴァイスサイド"
 		if strings.Contains(header, "シュヴァルツサイド") {
-			side = "S"
+			side = SideSchwarz
 			sideNote = "シュヴァルツサイド"
 		}
 		table.Find("tr").Each(func(rowIdx int, tr *goquery.Selection) {
@@ -289,7 +289,7 @@ func parseJapaneseDeckConstruction(doc *goquery.Document) ([]TitleDeckGroup, err
 }
 
 type titleDeckRow struct {
-	side      string
+	side      Side
 	title     string
 	codes     []string
 	notes     []string

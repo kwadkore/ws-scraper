@@ -42,7 +42,7 @@ func (g TitleDeckGroup) matchesName(name string) bool {
 	return false
 }
 
-func findGroup(t *testing.T, groups []TitleDeckGroup, side string, name string) TitleDeckGroup {
+func findGroup(t *testing.T, groups []TitleDeckGroup, side Side, name string) TitleDeckGroup {
 	t.Helper()
 	for _, group := range groups {
 		if group.Side == side && group.matchesName(name) {
@@ -203,7 +203,7 @@ func TestCanonicalizeTitleFallsBackToRawCombinedTitle(t *testing.T) {
 
 func TestParseEnglishDeckConstructionBandoriAliases(t *testing.T) {
 	groups := loadEnglishDeckGroups(t)
-	bandori := findGroup(t, groups, "W", "BanG Dream! [Ave Mujica]")
+	bandori := findGroup(t, groups, SideWeiss, "BanG Dream! [Ave Mujica]")
 	if bandori.CanonicalName != "BanG Dream!" {
 		t.Fatalf("unexpected canonical name: %q", bandori.CanonicalName)
 	}
@@ -224,8 +224,8 @@ func TestParseEnglishDeckConstructionBandoriAliases(t *testing.T) {
 
 func TestParseEnglishDeckConstructionDengekiIsSideSpecific(t *testing.T) {
 	groups := loadEnglishDeckGroups(t)
-	dengekiW := findGroup(t, groups, "W", "Dengeki Bunko")
-	dengekiS := findGroup(t, groups, "S", "Dengeki Bunko")
+	dengekiW := findGroup(t, groups, SideWeiss, "Dengeki Bunko")
+	dengekiS := findGroup(t, groups, SideSchwarz, "Dengeki Bunko")
 	if slices.Equal(dengekiW.AllowedCodes, dengekiS.AllowedCodes) {
 		t.Fatalf("expected side-specific Dengeki lists, got equal lists")
 	}
@@ -233,7 +233,7 @@ func TestParseEnglishDeckConstructionDengekiIsSideSpecific(t *testing.T) {
 
 func TestParseEnglishDeckConstructionSplitsMultiCodeRows(t *testing.T) {
 	groups := loadEnglishDeckGroups(t)
-	loveLiveSunshine := findGroup(t, groups, "W", "Love Live! Sunshine!!")
+	loveLiveSunshine := findGroup(t, groups, SideWeiss, "Love Live! Sunshine!!")
 	for _, code := range []string{"SIS", "LSF", "LSS"} {
 		assertContainsCode(t, loveLiveSunshine, code)
 	}
@@ -241,8 +241,8 @@ func TestParseEnglishDeckConstructionSplitsMultiCodeRows(t *testing.T) {
 
 func TestParseEnglishDeckConstructionPreservesSharedCodesAcrossTitles(t *testing.T) {
 	groups := loadEnglishDeckGroups(t)
-	dengekiS := findGroup(t, groups, "S", "Dengeki Bunko")
-	sao := findGroup(t, groups, "S", "Sword Art Online")
+	dengekiS := findGroup(t, groups, SideSchwarz, "Dengeki Bunko")
+	sao := findGroup(t, groups, SideSchwarz, "Sword Art Online")
 	assertContainsCode(t, sao, "Gso")
 	assertContainsCode(t, dengekiS, "Gso")
 }
@@ -349,7 +349,7 @@ func TestParseEnglishDeckRulesStripsUpdateMarkersAndTracksThem(t *testing.T) {
 func TestParseJapaneseDeckConstructionBandoriCodes(t *testing.T) {
 	groups := loadJapaneseDeckGroups(t)
 
-	bandori := findGroup(t, groups, "W", "BanG Dream!")
+	bandori := findGroup(t, groups, SideWeiss, "BanG Dream!")
 	for _, code := range []string{"BD", "BDY"} {
 		assertContainsCode(t, bandori, code)
 	}
@@ -357,7 +357,7 @@ func TestParseJapaneseDeckConstructionBandoriCodes(t *testing.T) {
 
 func TestParseJapaneseDeckConstructionDengekiUsesWeissSubset(t *testing.T) {
 	groups := loadJapaneseDeckGroups(t)
-	dengekiW := findGroup(t, groups, "W", "電撃文庫")
+	dengekiW := findGroup(t, groups, SideWeiss, "電撃文庫")
 	assertContainsCode(t, dengekiW, "Gas")
 	assertContainsCode(t, dengekiW, "Gsr")
 	if slices.Contains(dengekiW.AllowedCodes, "G86") {
@@ -367,7 +367,7 @@ func TestParseJapaneseDeckConstructionDengekiUsesWeissSubset(t *testing.T) {
 
 func TestParseJapaneseDeckConstructionDengekiUsesSchwarzSubset(t *testing.T) {
 	groups := loadJapaneseDeckGroups(t)
-	dengekiS := findGroup(t, groups, "S", "電撃文庫")
+	dengekiS := findGroup(t, groups, SideSchwarz, "電撃文庫")
 	assertContainsCode(t, dengekiS, "G86")
 	assertContainsCode(t, dengekiS, "Gso")
 	if len(dengekiS.Notes) == 0 {
@@ -378,8 +378,8 @@ func TestParseJapaneseDeckConstructionDengekiUsesSchwarzSubset(t *testing.T) {
 func TestParseJapaneseDeckConstructionKeepsDualSideTitlesSeparate(t *testing.T) {
 	groups := loadJapaneseDeckGroups(t)
 
-	shiyokoW := findGroup(t, groups, "W", "カードゲームしよ子")
-	shiyokoS := findGroup(t, groups, "S", "カードゲームしよ子")
+	shiyokoW := findGroup(t, groups, SideWeiss, "カードゲームしよ子")
+	shiyokoS := findGroup(t, groups, SideSchwarz, "カードゲームしよ子")
 	assertContainsCode(t, shiyokoW, "CGS")
 	assertContainsCode(t, shiyokoS, "SI")
 }
@@ -387,8 +387,8 @@ func TestParseJapaneseDeckConstructionKeepsDualSideTitlesSeparate(t *testing.T) 
 func TestParseJapaneseDeckConstructionPreservesSharedCodesAcrossTitles(t *testing.T) {
 	groups := loadJapaneseDeckGroups(t)
 
-	dengekiS := findGroup(t, groups, "S", "電撃文庫")
-	sao := findGroup(t, groups, "S", "ソードアート・オンライン")
+	dengekiS := findGroup(t, groups, SideSchwarz, "電撃文庫")
+	sao := findGroup(t, groups, SideSchwarz, "ソードアート・オンライン")
 	assertContainsCode(t, sao, "Gso")
 	assertContainsCode(t, dengekiS, "Gso")
 }
