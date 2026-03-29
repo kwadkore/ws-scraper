@@ -45,8 +45,9 @@ type Card struct {
 	// ExpansionName is the normalized product/expansion title shown on card pages
 	// (eg. "Love Live! Vol.2").
 	ExpansionName string `json:"expansionName"`
-	// Side is either "W" for Weiss, or "S" for Schwarz.
-	Side string `json:"side"`
+	// Sides contains the card's side ("W" for Weiss, "S" for Schwarz).
+	// Some cards are dual-sided (eg. Gso/WS02-124SP and Gso/WS02-E124SP).
+	Sides []string `json:"sides,omitempty"`
 	// Release typically consists of the card's side, followed by a number
 	// (the release pack ID) indicating which consecutive release for the relative
 	// side the release is.
@@ -160,6 +161,36 @@ func parseNumericStat(st string) *int {
 	return &n
 }
 
+func parseSides(sideNode *goquery.Selection) []string {
+	if sideNode == nil {
+		return nil
+	}
+
+	found := map[string]bool{}
+	sideNode.Find("img").Each(func(i int, s *goquery.Selection) {
+		src, ok := s.Attr("src")
+		if !ok {
+			return
+		}
+		_, sideName := path.Split(src)
+		switch strings.ToUpper(strings.Split(sideName, ".")[0]) {
+		case "W":
+			found["W"] = true
+		case "S":
+			found["S"] = true
+		}
+	})
+
+	var sides []string
+	if found["W"] {
+		sides = append(sides, "W")
+	}
+	if found["S"] {
+		sides = append(sides, "S")
+	}
+	return sides
+}
+
 // extractData extract data to card
 func extractData(config siteConfig, mainHTML *goquery.Selection) Card {
 	switch config.languageCode {
@@ -227,12 +258,12 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		case "Rarity":
 			info["rarity"] = ddText
 		case "Side":
-			if u, ok := dd.Find("img").First().Attr("src"); ok {
-				_, side := path.Split(u)
-				info["side"] = strings.ToUpper(strings.Split(side, ".")[0])
-			} else {
+			sides := parseSides(dd)
+			if len(sides) == 0 {
 				slog.With("cardnumber", cardNumber).Error("Failed to get side")
+				return
 			}
+			info["sides"] = strings.Join(sides, " ")
 		case "Soul":
 			info["soul"] = strconv.Itoa(dd.Children().Length())
 		case "Traits":
@@ -269,7 +300,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		// TODO: Figure out how to get EN set name. It's no longer on the card details page
 		// SetName:     setName,
 		ExpansionName: info["expansion"],
-		Side:          info["side"],
+		Sides:         strings.Fields(info["sides"]),
 		Release:       release,
 		ReleasePackID: releasePackID,
 		ID:            cardID,
@@ -376,8 +407,11 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 			infos["rarity"] = rarity
 			// Side
 		case strings.HasPrefix(txt, "サイド："):
-			_, side := path.Split(s.Children().AttrOr("src", "yay"))
-			infos["side"] = strings.ToUpper(strings.Split(side, ".")[0])
+			sides := parseSides(s)
+			if len(sides) == 0 {
+				break
+			}
+			infos["sides"] = strings.Join(sides, " ")
 			// Soul
 		case strings.HasPrefix(txt, "ソウル："):
 			infos["soul"] = strconv.Itoa(s.Children().Length())
@@ -412,7 +446,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 		CardNumber:    cardNumber,
 		SetID:         setID,
 		ExpansionName: expansionName,
-		Side:          infos["side"],
+		Sides:         strings.Fields(infos["sides"]),
 		Release:       release,
 		ReleasePackID: releasePackID,
 		ID:            cardID,

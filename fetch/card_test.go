@@ -53,8 +53,8 @@ func assertCardEqualsWithTitle(t *testing.T, title string, got, want Card) {
 	if got.ExpansionName != want.ExpansionName {
 		t.Errorf("%sIncorrect ExpansionName: got %q, want %q", prefix, got.ExpansionName, want.ExpansionName)
 	}
-	if got.Side != want.Side {
-		t.Errorf("%sIncorrect Side: got %q, want %q", prefix, got.Side, want.Side)
+	if !equalSlice(got.Sides, want.Sides) {
+		t.Errorf("%sIncorrect Sides: got %v, want %v", prefix, got.Sides, want.Sides)
 	}
 	if got.Release != want.Release {
 		t.Errorf("%sIncorrect Release: got %q, want %q", prefix, got.Release, want.Release)
@@ -159,8 +159,8 @@ func TestExtractData_jp(t *testing.T) {
 	if card.SetID != "BD" {
 		t.Errorf("got %v: expected BD", card.SetID)
 	}
-	if card.Side != "W" {
-		t.Errorf("got %v: expected W", card.Side)
+	if !equalSlice(card.Sides, []string{"W"}) {
+		t.Errorf("got %v: expected [W]", card.Sides)
 	}
 	if card.Release != "W63" {
 		t.Errorf("got %v: expected W63", card.Release)
@@ -235,7 +235,7 @@ func TestExtractData_jp_purple(t *testing.T) {
 		Name:          "むらさきパプリス",
 		SetID:         "PY",
 		ExpansionName: "PRカード【Sサイド】",
-		Side:          "S",
+		Sides:         []string{"S"},
 		CardNumber:    "PY/S38-125",
 		Release:       "S38",
 		ReleasePackID: "38",
@@ -253,6 +253,67 @@ func TestExtractData_jp_purple(t *testing.T) {
 		Traits:        []string{"ぷよ", "動物"},
 		Text:          []string{"【永】 応援 このカードの前のあなたのキャラすべてに、パワーを＋500。"},
 	}
+	assertCardEquals(t, card, expectedCard)
+}
+
+func TestExtractData_jp_multiSideCard(t *testing.T) {
+	html := `
+	<tr>
+<th><a href="/cardlist/?cardno=Gso/WS02-124SP&amp;l"><img src="/wordpress/wp-content/images/cardlist/g/g_ws02/gso_ws02_124sp.png" alt="巡り合う二人 キリト＆アスナ"></a></th>
+<td>
+<h4><a href="/cardlist/?cardno=Gso/WS02-124SP&amp;l"><span class="highlight_target">
+巡り合う二人 キリト＆アスナ</span>(<span class="highlight_target"><span class="highlight">Gso/WS02-124SP</span></span>)</a> -電撃文庫<br></h4>
+<span class="unit">
+サイド：<img src="/wordpress/wp-content/images/cardlist/_partimages/w.gif"> <img src="/wordpress/wp-content/images/cardlist/_partimages/s.gif"></span>
+<span class="unit">種類：キャラ</span>
+<span class="unit">レベル：1</span><br>
+<span class="unit">色：<img src="/wordpress/wp-content/images/cardlist/_partimages/blue.gif"></span>
+<span class="unit">パワー：4000</span>
+<span class="unit">ソウル：<img src="/wordpress/wp-content/images/cardlist/_partimages/soul.gif"></span>
+<span class="unit">コスト：0</span><br>
+<span class="unit">レアリティ：SP</span>
+<span class="unit">トリガー：-</span>
+<span class="unit">特徴：<span class="highlight_target">電撃文庫・アバター・武器</span></span><br>
+<span class="unit">フレーバー：-</span><br>
+<br>
+<span class="highlight_target">【自】 このカードが手札から舞台に置かれた時、他のあなたの、《電撃文庫》か《アバター》か《ネット》のキャラがいるなら、そのターン中、このカードのパワーを＋2000。<br>【自】 加速 ［(1) あなたの山札の上から1枚をクロック置場に置き、手札を1枚控え室に置く］ このカードがアタックした時、あなたはコストを払ってよい。そうしたら、あなたは自分の山札を見て《電撃文庫》か《アバター》か《ネット》のキャラを2枚まで選んで相手に見せ、手札に加え、その山札をシャッフルする。</span>
+</td>
+</tr>
+	`
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expectedCard := Card{
+		Name:          "巡り合う二人 キリト＆アスナ",
+		SetID:         "Gso",
+		ExpansionName: "電撃文庫",
+		Sides:         []string{"W", "S"},
+		CardNumber:    "Gso/WS02-124SP",
+		Release:       "WS02",
+		ReleasePackID: "02",
+		ID:            "124SP",
+		Color:         "BLUE",
+		Language:      "ja",
+		Type:          "CH",
+		Soul:          intPtr(1),
+		Level:         intPtr(1),
+		Cost:          intPtr(0),
+		FlavorText:    "-",
+		Power:         intPtr(4000),
+		Rarity:        "SP",
+		ImageURL:      "https://ws-tcg.com/wordpress/wp-content/images/cardlist/g/g_ws02/gso_ws02_124sp.png",
+		Traits:        []string{"電撃文庫", "アバター", "武器"},
+		Triggers:      []string{},
+		Text: []string{
+			"【自】 このカードが手札から舞台に置かれた時、他のあなたの、《電撃文庫》か《アバター》か《ネット》のキャラがいるなら、そのターン中、このカードのパワーを＋2000。",
+			"【自】 加速 ［(1) あなたの山札の上から1枚をクロック置場に置き、手札を1枚控え室に置く］ このカードがアタックした時、あなたはコストを払ってよい。そうしたら、あなたは自分の山札を見て《電撃文庫》か《アバター》か《ネット》のキャラを2枚まで選んで相手に見せ、手札に加え、その山札をシャッフルする。",
+		},
+	}
+
+	card := extractData(siteConfigs[Japanese], doc.Clone())
 	assertCardEquals(t, card, expectedCard)
 }
 
@@ -348,7 +409,7 @@ func TestExtractDataCX_jp(t *testing.T) {
 		Name:          "キラキラのお日様",
 		SetID:         "BD",
 		ExpansionName: "「バンドリ！ ガールズバンドパーティ！」Vol.2",
-		Side:          "W",
+		Sides:         []string{"W"},
 		CardNumber:    "BD/W63-025",
 		Release:       "W63",
 		ReleasePackID: "63",
@@ -454,7 +515,7 @@ func TestExtractData_en(t *testing.T) {
 		ExpansionName: "PR Card 【Schwarz Side】",
 		CardNumber:    "FS/BCS2019-03",
 		SetID:         "FS",
-		Side:          "S",
+		Sides:         []string{"S"},
 		Release:       "BCS2019",
 		ReleasePackID: "2019",
 		ID:            "03",
@@ -554,7 +615,7 @@ func TestExtractData_en_multiIconAbility(t *testing.T) {
 		CardNumber:    "ATLA/WX04-007S",
 		SetID:         "ATLA",
 		ExpansionName: "Avatar: The Last Airbender",
-		Side:          "W",
+		Sides:         []string{"W"},
 		Release:       "WX04",
 		ReleasePackID: "WX",
 		ID:            "007S",
@@ -574,6 +635,114 @@ func TestExtractData_en_multiIconAbility(t *testing.T) {
 		Text: []string{
 			"【CONT】 If your climax area has a climax with [CHOICE] in its trigger icon, this card in all of your zones get [CHOICE] in the trigger icon. If there is a climax with [TREASURE] in its trigger icon, this card in all of your zones get [TREASURE] in the trigger icon. If there is a climax with [STANDBY] in its trigger icon, this card in all of your zones get [STANDBY] in the trigger icon. If there is a climax with [GATE] in its trigger icon, this card in all of your zones get [GATE] in the trigger icon.",
 			"【AUTO】 【CLOCK】 Alarm If this card is the top card of your clock, and you have 4 or more 《World of Avatar》 characters, at the beginning of your climax phase, you may put the top card of your deck into your stock.",
+		},
+	}
+
+	card := extractData(siteConfigs[English], doc.Clone())
+	assertCardEquals(t, card, expectedCard)
+}
+
+func TestExtractData_en_multiSideCard(t *testing.T) {
+	cardHTML := `
+<div class="p-cards__detail-wrapper">
+        <div class="p-cards__detail-wrapper-inner">
+          <div class="image"><img src="/wordpress/wp-content/images/cardimages/Gxx/WS02_E124SP.png" alt="The Two Who Meet by Chance, Kirito &amp; Asuna" decoding="async">
+          </div>
+          <div class="p-cards__detail-textarea">
+            <p class="number">Gso/WS02-E124SP</p>
+            <p class="ttl u-mt-14 u-mt-16-sp">The Two Who Meet by Chance, Kirito &amp; Asuna</p>
+            <div class="p-cards__detail-type u-mt-22 u-mt-40-sp">
+              <dl>
+                <dt>Expansion</dt>
+                <dd>Dengeki Bunko</dd>
+              </dl>
+              <dl>
+                <dt>Traits</dt>
+                <dd>Dengeki Bunko・Avatar・Weapon</dd>
+              </dl>
+              <dl>
+                <dt>Card Type</dt>
+                <dd>Character</dd>
+              </dl>
+              <dl>
+                <dt>Rarity</dt>
+                <dd>SP</dd>
+              </dl>
+              <dl>
+                <dt>Side</dt>
+                <dd>
+                                                      <img src="/cardlist/partimages/w.gif" alt="" decoding="async">
+                  <img src="/cardlist/partimages/s.gif" alt="" decoding="async">
+                                  </dd>
+              </dl>
+              <dl>
+                <dt>Color</dt>
+                <dd><img src="/wordpress/wp-content/images/partimages/blue.gif"></dd>
+              </dl>
+            </div>
+            <div class="p-cards__detail-status u-mt-22 u-mt-40-sp">
+              <dl>
+                <dt>Level</dt>
+                <dd>1</dd>
+              </dl>
+              <dl>
+                <dt>Cost</dt>
+                <dd>0</dd>
+              </dl>
+              <dl>
+                <dt>Power</dt>
+                <dd>4000</dd>
+              </dl>
+              <dl>
+                <dt>Trigger</dt>
+                <dd>－</dd>
+              </dl>
+              <dl>
+                <dt>Soul</dt>
+                <dd><img src="/wordpress/wp-content/images/partimages/soul.gif"></dd>
+              </dl>
+            </div>
+            <div class="p-cards__detail u-mt-22 u-mt-40-sp">
+              <p>【AUTO】 When this card is placed on the stage from your hand, if you have another 《Dengeki Bunko》 or 《Avatar》 or 《Net》 character, this card gets +2000 power until end of turn.<br>【AUTO】 Accelerate [(1) Put the top card of your deck into your clock &amp; Put 1 card from your hand into your waiting room] When this card attacks, you may pay the cost. If you do, search your deck for up to 2 《Dengeki Bunko》 or 《Avatar》 or 《Net》 characters, reveal them to your opponent, put them into your hand, and shuffle your deck.</p>
+            </div>
+            <div class="p-cards__detail-serif u-mt-22 u-mt-40-sp">
+              <p>-</p>
+            </div>
+            <p class="p-cards__detail-copyrights u-mt-22 u-mt-40-sp">©KADOKAWA CORPORATION 2024　©Reki Kawahara 2024　illustration/abec</p>
+          </div>
+        </div>
+      </div>
+`
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(cardHTML))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expectedCard := Card{
+		CardNumber:    "Gso/WS02-E124SP",
+		SetID:         "Gso",
+		ExpansionName: "Dengeki Bunko",
+		Sides:         []string{"W", "S"},
+		Release:       "WS02",
+		ReleasePackID: "02",
+		ID:            "E124SP",
+		Language:      "en",
+		Type:          "CH",
+		Name:          "The Two Who Meet by Chance, Kirito & Asuna",
+		Color:         "BLUE",
+		Soul:          intPtr(1),
+		Level:         intPtr(1),
+		Cost:          intPtr(0),
+		FlavorText:    "",
+		Power:         intPtr(4000),
+		Rarity:        "SP",
+		ImageURL:      "https://en.ws-tcg.com/wordpress/wp-content/images/cardimages/Gxx/WS02_E124SP.png",
+		Triggers:      []string{},
+		Traits:        []string{"Dengeki Bunko", "Avatar", "Weapon"},
+		Text: []string{
+			"【AUTO】 When this card is placed on the stage from your hand, if you have another 《Dengeki Bunko》 or 《Avatar》 or 《Net》 character, this card gets +2000 power until end of turn.",
+			"【AUTO】 Accelerate [(1) Put the top card of your deck into your clock & Put 1 card from your hand into your waiting room] When this card attacks, you may pay the cost. If you do, search your deck for up to 2 《Dengeki Bunko》 or 《Avatar》 or 《Net》 characters, reveal them to your opponent, put them into your hand, and shuffle your deck.",
 		},
 	}
 
@@ -891,7 +1060,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "BD/EN-W03-004",
 				SetID:         "BD",
 				ExpansionName: "BanG Dream! Girls Band Party! MULTI LIVE",
-				Side:          "W",
+				Sides:         []string{"W"},
 				Release:       "EN-W03",
 				ReleasePackID: "03",
 				ID:            "004",
@@ -988,7 +1157,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "WS/TCPR-P01",
 				SetID:         "WS",
 				ExpansionName: "PR Card 【Weiẞ Side】",
-				Side:          "W",
+				Sides:         []string{"W"},
 				Release:       "TCPR",
 				ReleasePackID: "",
 				ID:            "P01",
@@ -1086,7 +1255,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "RWBY/BRO2021-01 PR",
 				SetID:         "RWBY",
 				ExpansionName: "PR Card 【Weiẞ Side】",
-				Side:          "W",
+				Sides:         []string{"W"},
 				Release:       "BRO2021",
 				ReleasePackID: "2021",
 				ID:            "01 PR",
@@ -1183,7 +1352,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "BFR/BSL2021-03S",
 				SetID:         "BFR",
 				ExpansionName: "PR Card 【Schwarz Side】",
-				Side:          "S",
+				Sides:         []string{"S"},
 				Release:       "BSL2021",
 				ReleasePackID: "2021",
 				ID:            "03S",
@@ -1280,7 +1449,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "TSK/S82-E070SSP+",
 				SetID:         "TSK",
 				ExpansionName: "That Time I Got Reincarnated as a Slime Vol.2",
-				Side:          "S",
+				Sides:         []string{"S"},
 				Release:       "S82",
 				ReleasePackID: "82",
 				ID:            "E070SSP+",
@@ -1375,7 +1544,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				CardNumber:    "BD/WE42-E096 N",
 				SetID:         "BD",
 				ExpansionName: "[EX] Bang Dream! Girls Band Party! Countdown Collection",
-				Side:          "W",
+				Sides:         []string{"W"},
 				Release:       "WE42",
 				ReleasePackID: "42",
 				ID:            "E096 N",
@@ -1491,7 +1660,7 @@ func TestExtractData_en_improperColor(t *testing.T) {
 				CardNumber:    "SFN/S108-E020",
 				SetID:         "SFN",
 				ExpansionName: "Frieren: Beyond Journey’s End",
-				Side:          "S",
+				Sides:         []string{"S"},
 				Release:       "S108",
 				ReleasePackID: "108",
 				ID:            "E020",
