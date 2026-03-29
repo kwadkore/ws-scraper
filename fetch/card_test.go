@@ -53,6 +53,18 @@ func assertCardEqualsWithTitle(t *testing.T, title string, got, want Card) {
 	if got.ExpansionName != want.ExpansionName {
 		t.Errorf("%sIncorrect ExpansionName: got %q, want %q", prefix, got.ExpansionName, want.ExpansionName)
 	}
+	if got.ExpansionSlug != want.ExpansionSlug {
+		t.Errorf("%sIncorrect ExpansionSlug: got %q, want %q", prefix, got.ExpansionSlug, want.ExpansionSlug)
+	}
+	if got.ExpansionProductDisplayName != want.ExpansionProductDisplayName {
+		t.Errorf("%sIncorrect ExpansionProductDisplayName: got %q, want %q", prefix, got.ExpansionProductDisplayName, want.ExpansionProductDisplayName)
+	}
+	if got.ExpansionProductURL != want.ExpansionProductURL {
+		t.Errorf("%sIncorrect ExpansionProductURL: got %q, want %q", prefix, got.ExpansionProductURL, want.ExpansionProductURL)
+	}
+	if got.ExpansionSourceType != want.ExpansionSourceType {
+		t.Errorf("%sIncorrect ExpansionSourceType: got %q, want %q", prefix, got.ExpansionSourceType, want.ExpansionSourceType)
+	}
 	if !equalSlice(got.Sides, want.Sides) {
 		t.Errorf("%sIncorrect Sides: got %v, want %v", prefix, got.Sides, want.Sides)
 	}
@@ -537,70 +549,86 @@ func TestExtractData_en(t *testing.T) {
 
 func TestExtractData_en_multiIconAbility(t *testing.T) {
 	character := `
-<div class="p-cards__detail-wrapper">
-	<div class="p-cards__detail-wrapper-inner">
-		<div class="image"><img src="/wp/wp-content/images/cardimages/ATLA/BP/ATLA_WX04_007S.png" alt="Aang: Learning Avatar State" decoding="async">
+<div class="c-header">
+	<nav><a href="https://en.ws-tcg.com/products/">Products</a></nav>
+</div>
+<div class="l-subpage__contents-max u-mt-80 u-mt-60-sp">
+	<div class="p-cards__detail-wrapper">
+		<div class="p-cards__detail-wrapper-inner">
+			<div class="image"><img src="/wp/wp-content/images/cardimages/ATLA/BP/ATLA_WX04_007S.png" alt="Aang: Learning Avatar State" decoding="async">
+			</div>
+			<div class="p-cards__detail-textarea">
+			<p class="number">ATLA/WX04-007S</p>
+			<p class="ttl u-mt-14 u-mt-16-sp">Aang: Learning Avatar State</p>
+			<div class="p-cards__detail-type u-mt-22 u-mt-40-sp">
+				<dl>
+				<dt>Expansion</dt>
+				<dd>Avatar: The Last Airbender</dd>
+				</dl>
+				<dl>
+				<dt>Traits</dt>
+				<dd>World of Avatar・Air Nomads</dd>
+				</dl>
+				<dl>
+				<dt>Card Type</dt>
+				<dd>Character</dd>
+				</dl>
+				<dl>
+				<dt>Rarity</dt>
+				<dd>SR</dd>
+				</dl>
+				<dl>
+				<dt>Side</dt>
+				<dd>
+									<img src="/cardlist/partimages/w.gif" alt="" decoding="async">
+									</dd>
+				</dl>
+				<dl>
+				<dt>Color</dt>
+				<dd><img src="/wp/wp-content/images/partimages/yellow.gif"></dd>
+				</dl>
+			</div>
+			<div class="p-cards__detail-status u-mt-22 u-mt-40-sp">
+				<dl>
+				<dt>Level</dt>
+				<dd>2</dd>
+				</dl>
+				<dl>
+				<dt>Cost</dt>
+				<dd>1</dd>
+				</dl>
+				<dl>
+				<dt>Power</dt>
+				<dd>1000</dd>
+				</dl>
+				<dl>
+				<dt>Trigger</dt>
+				<dd><img src="/wp/wp-content/images/partimages/soul.gif"></dd>
+				</dl>
+				<dl>
+				<dt>Soul</dt>
+				<dd>-</dd>
+				</dl>
+			</div>
+			<div class="p-cards__detail u-mt-22 u-mt-40-sp">
+				<p>【CONT】 If your climax area has a climax with <img src="/wp/wp-content/images/partimages/choice.gif"> in its trigger icon, this card in all of your zones get <img src="/wp/wp-content/images/partimages/choice.gif"> in the trigger icon. If there is a climax with <img src="/wp/wp-content/images/partimages/treasure.gif"> in its trigger icon, this card in all of your zones get <img src="/wp/wp-content/images/partimages/treasure.gif"> in the trigger icon. If there is a climax with <img src="/wp/wp-content/images/partimages/standby.gif"> in its trigger icon, this card in all of your zones get <img src="/wp/wp-content/images/partimages/standby.gif"> in the trigger icon. If there is a climax with <img src="/wp/wp-content/images/partimages/gate.gif"> in its trigger icon, this card in all of your zones get <img src="/wp/wp-content/images/partimages/gate.gif"> in the trigger icon.<br>【AUTO】 【CLOCK】 Alarm If this card is the top card of your clock, and you have 4 or more 《World of Avatar》 characters, at the beginning of your climax phase, you may put the top card of your deck into your stock.</p>
+			</div>
+			<div class="p-cards__detail-serif u-mt-22 u-mt-40-sp">
+				<p>-</p>
+			</div>
+			<p class="p-cards__detail-copyrights u-mt-22 u-mt-40-sp">©2023 Viacom International Inc. All Rights Reserved.</p>
+			</div>
 		</div>
-		<div class="p-cards__detail-textarea">
-		<p class="number">ATLA/WX04-007S</p>
-		<p class="ttl u-mt-14 u-mt-16-sp">Aang: Learning Avatar State</p>
-		<div class="p-cards__detail-type u-mt-22 u-mt-40-sp">
-			<dl>
-			<dt>Expansion</dt>
-			<dd>Avatar: The Last Airbender</dd>
-			</dl>
-			<dl>
-			<dt>Traits</dt>
-			<dd>World of Avatar・Air Nomads</dd>
-			</dl>
-			<dl>
-			<dt>Card Type</dt>
-			<dd>Character</dd>
-			</dl>
-			<dl>
-			<dt>Rarity</dt>
-			<dd>SR</dd>
-			</dl>
-			<dl>
-			<dt>Side</dt>
-			<dd>
-								<img src="/cardlist/partimages/w.gif" alt="" decoding="async">
-								</dd>
-			</dl>
-			<dl>
-			<dt>Color</dt>
-			<dd><img src="/wp/wp-content/images/partimages/yellow.gif"></dd>
-			</dl>
-		</div>
-		<div class="p-cards__detail-status u-mt-22 u-mt-40-sp">
-			<dl>
-			<dt>Level</dt>
-			<dd>2</dd>
-			</dl>
-			<dl>
-			<dt>Cost</dt>
-			<dd>1</dd>
-			</dl>
-			<dl>
-			<dt>Power</dt>
-			<dd>1000</dd>
-			</dl>
-			<dl>
-			<dt>Trigger</dt>
-			<dd><img src="/wp/wp-content/images/partimages/soul.gif"></dd>
-			</dl>
-			<dl>
-			<dt>Soul</dt>
-			<dd>-</dd>
-			</dl>
-		</div>
-		<div class="p-cards__detail u-mt-22 u-mt-40-sp">
-			<p>【CONT】 If your climax area has a climax with <img src="/wp/wp-content/images/partimages/choice.gif"> in its trigger icon, this card in all of your zones get <img src="/wp/wp-content/images/partimages/choice.gif"> in the trigger icon. If there is a climax with <img src="/wp/wp-content/images/partimages/treasure.gif"> in its trigger icon, this card in all of your zones get <img src="/wp/wp-content/images/partimages/treasure.gif"> in the trigger icon. If there is a climax with <img src="/wp/wp-content/images/partimages/standby.gif"> in its trigger icon, this card in all of your zones get <img src="/wp/wp-content/images/partimages/standby.gif"> in the trigger icon. If there is a climax with <img src="/wp/wp-content/images/partimages/gate.gif"> in its trigger icon, this card in all of your zones get <img src="/wp/wp-content/images/partimages/gate.gif"> in the trigger icon.<br>【AUTO】 【CLOCK】 Alarm If this card is the top card of your clock, and you have 4 or more 《World of Avatar》 characters, at the beginning of your climax phase, you may put the top card of your deck into your stock.</p>
-		</div>
-		<div class="p-cards__detail-serif u-mt-22 u-mt-40-sp">
-			<p>-</p>
-		</div>
-		<p class="p-cards__detail-copyrights u-mt-22 u-mt-40-sp">©2023 Viacom International Inc. All Rights Reserved.</p>
+	</div>
+	<div class="p-cards__cardset-wrapper u-mt-100 u-mt-100-sp">
+        <h2 class="c-heading__subttl">Card Set</h2>
+        <div class="p-cards__cardset-item u-mt-36 u-mt-50-sp">
+			<p class="date">Jun. 16, 2023</p>
+			<p class="ttl">Avatar: The Last Airbender</p>
+			<ul class="p-cards__cardset-link">
+				<li><a href="/cardlist/searchresults/?expansion=196">Cards</a></li>
+				<li><a href="https://en.ws-tcg.com/products/bp-atla/">Product Page</a></li>
+			</ul>
 		</div>
 	</div>
 </div>
@@ -612,26 +640,29 @@ func TestExtractData_en_multiIconAbility(t *testing.T) {
 	}
 
 	expectedCard := Card{
-		CardNumber:    "ATLA/WX04-007S",
-		SetID:         "ATLA",
-		ExpansionName: "Avatar: The Last Airbender",
-		Sides:         []Side{SideWeiss},
-		Release:       "WX04",
-		ReleasePackID: "WX",
-		ID:            "007S",
-		Language:      "en",
-		Type:          "CH",
-		Name:          "Aang: Learning Avatar State",
-		Color:         "YELLOW",
-		Soul:          intPtr(0),
-		Level:         intPtr(2),
-		Cost:          intPtr(1),
-		FlavorText:    "",
-		Power:         intPtr(1000),
-		Rarity:        "SR",
-		ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/ATLA/BP/ATLA_WX04_007S.png",
-		Triggers:      []string{"SOUL"},
-		Traits:        []string{"World of Avatar", "Air Nomads"},
+		CardNumber:          "ATLA/WX04-007S",
+		SetID:               "ATLA",
+		ExpansionName:       "Avatar: The Last Airbender",
+		Sides:               []Side{SideWeiss},
+		Release:             "WX04",
+		ReleasePackID:       "WX",
+		ID:                  "007S",
+		Language:            "en",
+		Type:                "CH",
+		Name:                "Aang: Learning Avatar State",
+		Color:               "YELLOW",
+		Soul:                intPtr(0),
+		Level:               intPtr(2),
+		Cost:                intPtr(1),
+		FlavorText:          "",
+		Power:               intPtr(1000),
+		Rarity:              "SR",
+		ImageURL:            "https://en.ws-tcg.com/wp/wp-content/images/cardimages/ATLA/BP/ATLA_WX04_007S.png",
+		ExpansionSlug:       "bp-atla",
+		ExpansionProductURL: "https://en.ws-tcg.com/products/bp-atla/",
+		ExpansionSourceType: ExpansionSourceTypeProductPage,
+		Triggers:            []string{"SOUL"},
+		Traits:              []string{"World of Avatar", "Air Nomads"},
 		Text: []string{
 			"【CONT】 If your climax area has a climax with [CHOICE] in its trigger icon, this card in all of your zones get [CHOICE] in the trigger icon. If there is a climax with [TREASURE] in its trigger icon, this card in all of your zones get [TREASURE] in the trigger icon. If there is a climax with [STANDBY] in its trigger icon, this card in all of your zones get [STANDBY] in the trigger icon. If there is a climax with [GATE] in its trigger icon, this card in all of your zones get [GATE] in the trigger icon.",
 			"【AUTO】 【CLOCK】 Alarm If this card is the top card of your clock, and you have 4 or more 《World of Avatar》 characters, at the beginning of your climax phase, you may put the top card of your deck into your stock.",

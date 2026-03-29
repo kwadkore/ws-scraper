@@ -133,7 +133,7 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 						return
 					}
 					slog.With("url", fullPath).Debug("Successfully parsed detailed page")
-					cardDetails := doc.Find(".p-cards__detail-wrapper")
+					cardDetails := doc.Selection
 					wgCardSel.Add(1)
 					cardSelCh <- cardDetails
 				})
@@ -344,6 +344,12 @@ func getImageWithClient(ctx context.Context, client *Client, url string) (image.
 func extractWorker(ctx context.Context, client *Client, siteCfg siteConfig, getImages bool, wgCardSel *sync.WaitGroup, cardSelChan <-chan *goquery.Selection, cardCh chan<- Card) {
 	for s := range cardSelChan {
 		c := extractData(siteCfg, s)
+		switch {
+		case c.ExpansionProductURL != "":
+			applyExpansionMetadata(&c, client.resolveProductExpansionMetadata(ctx, c))
+		default:
+			applyExpansionMetadata(&c, client.resolvePromoExpansionMetadata(ctx, SiteLanguage(siteCfg.languageCode), c))
+		}
 
 		if getImages {
 			if img, err := getImageWithClient(ctx, client, c.ImageURL); err != nil {

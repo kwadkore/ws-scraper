@@ -28,3 +28,11 @@ const (
 	CardColorYellow CardColor = "YELLOW"
 	CardColorPurple CardColor = "PURPLE"
 )
+
+// ExpansionSourceType identifies where the enriched expansion metadata came from.
+type ExpansionSourceType string
+
+const (
+	ExpansionSourceTypeProductPage  ExpansionSourceType = "product_page"
+	ExpansionSourceTypePromoListing ExpansionSourceType = "promo_listing"
+)

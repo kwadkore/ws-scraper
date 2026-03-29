@@ -43,8 +43,20 @@ type Card struct {
 	// expose one or the scraper is updated to find it.
 	SetName string `json:"setName"`
 	// ExpansionName is the normalized product/expansion title shown on card pages
-	// (eg. "Love Live! Vol.2").
+	// (eg. "Love Live! Vol.2"). This may differ from the product page title.
 	ExpansionName string `json:"expansionName"`
+	// ExpansionSlug is the official product slug for normal releases when available.
+	// Promo cards use a best-effort code from promo metadata, with ReleasePackID as
+	// a fallback when the listing doesn't expose one.
+	ExpansionSlug string `json:"expansionSlug"`
+	// ExpansionProductDisplayName is the product page title for normal releases or
+	// the specific promo group/distribution name from the promo listing.
+	ExpansionProductDisplayName string `json:"expansionProductDisplayName"`
+	// ExpansionProductURL is the product page URL when the card page links to one.
+	ExpansionProductURL string `json:"expansionProductURL,omitempty"`
+	// ExpansionSourceType indicates whether the richer expansion metadata came from
+	// a linked product page or an official promo listing.
+	ExpansionSourceType ExpansionSourceType `json:"expansionSourceType"`
 	// Sides contains the card's side ("W" for Weiss, "S" for Schwarz).
 	// Some cards are dual-sided (eg. Gso/WS02-124SP and Gso/WS02-E124SP).
 	Sides []Side `json:"sides,omitempty"`
@@ -218,7 +230,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 
 	setID, release, releasePackID, cardID := parseCardNumber(cardNumber)
 
-	cardName := mainHTML.Find(".ttl").Last().Text()
+	cardName := txtArea.Find(".ttl").First().Text()
 	imageCardURL, _ := mainHTML.Find("div.image img").Attr("src")
 
 	info := make(map[string]string)
@@ -330,6 +342,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 	if card.Type == CardTypeCharacter {
 		card.Soul = parseNumericStat(info["soul"])
 	}
+	applyExpansionMetadata(&card, extractExpansionMetadata(config, mainHTML))
 	return card
 }
 
@@ -476,6 +489,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 	if card.Type == CardTypeCharacter {
 		card.Soul = parseNumericStat(infos["soul"])
 	}
+	applyExpansionMetadata(&card, extractExpansionMetadata(config, mainHTML))
 	return card
 }
 

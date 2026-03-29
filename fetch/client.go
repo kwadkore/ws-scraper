@@ -39,23 +39,27 @@ var ErrBlocked = errors.New("scraper blocked by remote site")
 type Option func(*Client) error
 
 type Client struct {
-	httpClient     *http.Client
-	transport      *http.Transport
-	userAgent      string
-	maxRetries     int
-	requestTimeout time.Duration
-	cacheDir       string
-	cacheTTL       time.Duration
-	respectRobots  bool
-	networkSlots   chan struct{}
-	limiter        *requestLimiter
-	requestsPerSec float64
-	burst          int
-	randomMu       sync.Mutex
-	random         *rand.Rand
-	robotsMu       sync.Mutex
-	robotsByHost   map[string]robotsPolicy
-	logger         *slog.Logger
+	httpClient      *http.Client
+	transport       *http.Transport
+	userAgent       string
+	maxRetries      int
+	requestTimeout  time.Duration
+	cacheDir        string
+	cacheTTL        time.Duration
+	respectRobots   bool
+	networkSlots    chan struct{}
+	limiter         *requestLimiter
+	requestsPerSec  float64
+	burst           int
+	randomMu        sync.Mutex
+	random          *rand.Rand
+	robotsMu        sync.Mutex
+	robotsByHost    map[string]robotsPolicy
+	promoListingsMu sync.Mutex
+	promoListings   map[SiteLanguage]map[string]promoListingEntry
+	productPagesMu  sync.Mutex
+	productPages    map[string]resolvedExpansion
+	logger          *slog.Logger
 }
 
 type cacheEntry struct {
@@ -122,6 +126,8 @@ func NewClient(opts ...Option) (*Client, error) {
 		burst:          defaultBurst,
 		random:         rand.New(rand.NewSource(time.Now().UnixNano())),
 		robotsByHost:   make(map[string]robotsPolicy),
+		promoListings:  make(map[SiteLanguage]map[string]promoListingEntry),
+		productPages:   make(map[string]resolvedExpansion),
 		logger:         slog.Default(),
 	}
 
