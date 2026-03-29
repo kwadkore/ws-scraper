@@ -101,7 +101,7 @@ type Card struct {
 	// Traits indicating the attributes the card has. These are often referenced in card text.
 	Traits []string `json:"traits,omitempty"`
 	// Triggers that the card has and are activated during trigger checks.
-	Triggers []string `json:"triggers,omitempty"`
+	Triggers []Trigger `json:"triggers,omitempty"`
 
 	FlavorText string      `json:"flavorText,omitempty"`
 	ImageURL   string      `json:"imageURL"`
@@ -138,17 +138,19 @@ var baseRarity = []string{
 	"AR",
 }
 
-var triggersMap = map[string]string{
-	"soul":     "SOUL",
-	"salvage":  "COMEBACK",
-	"draw":     "DRAW",
-	"stock":    "POOL",
-	"treasure": "TREASURE",
-	"shot":     "SHOT",
-	"bounce":   "RETURN",
-	"gate":     "GATE",
-	"standby":  "STANDBY",
-	"choice":   "CHOICE",
+var triggersMap = map[string]Trigger{
+	"soul":      TriggerSoul,
+	"salvage":   TriggerComeback,
+	"draw":      TriggerDraw,
+	"stock":     TriggerPool,
+	"treasure":  TriggerTreasure,
+	"shot":      TriggerShot,
+	"bounce":    TriggerReturn,
+	"gate":      TriggerGate,
+	"standby":   TriggerStandby,
+	"chance":    TriggerChance,
+	"choice":    TriggerChoice,
+	"discovery": TriggerDiscovery,
 }
 
 var jpTextColorMap = map[string]CardColor{
@@ -281,15 +283,10 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		case "Traits":
 			info["specialAttribute"] = ddText
 		case "Trigger":
-			var res bytes.Buffer
-			dd.Children().Each(func(i int, ss *goquery.Selection) {
-				if i != 0 {
-					res.WriteString(" ")
-				}
-				_, trigger := path.Split(ss.AttrOr("src", "yay"))
-				res.WriteString(triggersMap[strings.Split(trigger, ".")[0]])
-			})
-			info["trigger"] = strings.ToUpper(strings.TrimSpace(res.String()))
+			triggers := parseTriggers(dd, cardNumber)
+			if len(triggers) != 0 {
+				info["trigger"] = strings.Join(triggersToStrings(triggers), " ")
+			}
 		default:
 			slog.With("cardnumber", cardNumber).Error(fmt.Sprintf("Unknown detail: %v", dt))
 		}
@@ -336,9 +333,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 	if info["specialAttribute"] != "" {
 		card.Traits = strings.Split(info["specialAttribute"], "・")
 	}
-	if info["trigger"] != "" {
-		card.Triggers = strings.Split(info["trigger"], " ")
-	}
+	card.Triggers = parseTriggerFields(info["trigger"])
 	if card.Type == CardTypeCharacter {
 		card.Soul = parseNumericStat(info["soul"])
 	}
@@ -430,15 +425,10 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 			infos["soul"] = strconv.Itoa(s.Children().Length())
 			// Trigger
 		case strings.HasPrefix(txt, "トリガー："):
-			var res bytes.Buffer
-			s.Children().Each(func(i int, ss *goquery.Selection) {
-				if i != 0 {
-					res.WriteString(" ")
-				}
-				_, trigger := path.Split(ss.AttrOr("src", "yay"))
-				res.WriteString(triggersMap[strings.Split(trigger, ".")[0]])
-			})
-			infos["trigger"] = strings.ToUpper(strings.TrimSpace(res.String()))
+			triggers := parseTriggers(s, rawCardNumber)
+			if len(triggers) != 0 {
+				infos["trigger"] = strings.Join(triggersToStrings(triggers), " ")
+			}
 			// Trait
 		case strings.HasPrefix(txt, "特徴："):
 			var res bytes.Buffer
@@ -483,9 +473,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 	if infos["specialAttribute"] != "" {
 		card.Traits = strings.Split(infos["specialAttribute"], "・")
 	}
-	if infos["trigger"] != "" {
-		card.Triggers = strings.Split(infos["trigger"], " ")
-	}
+	card.Triggers = parseTriggerFields(infos["trigger"])
 	if card.Type == CardTypeCharacter {
 		card.Soul = parseNumericStat(infos["soul"])
 	}
@@ -518,6 +506,56 @@ func sidesToStrings(sides []Side) []string {
 	return out
 }
 
+func parseTriggerFields(s string) []Trigger {
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return nil
+	}
+
+	triggers := make([]Trigger, 0, len(fields))
+	for _, field := range fields {
+		triggers = append(triggers, Trigger(field))
+	}
+	return triggers
+}
+
+func triggersToStrings(triggers []Trigger) []string {
+	if len(triggers) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(triggers))
+	for _, trigger := range triggers {
+		out = append(out, string(trigger))
+	}
+	return out
+}
+
+func parseTriggers(node *goquery.Selection, cardNumber string) []Trigger {
+	if node == nil {
+		return nil
+	}
+
+	triggers := make([]Trigger, 0, node.Children().Length())
+	node.Children().Each(func(i int, s *goquery.Selection) {
+		src, ok := s.Attr("src")
+		if !ok {
+			return
+		}
+
+		_, triggerFile := path.Split(src)
+		triggerName := strings.Split(triggerFile, ".")[0]
+		trigger, ok := triggersMap[triggerName]
+		if !ok {
+			slog.With("cardnumber", cardNumber).Warn("Unknown trigger icon", "trigger", triggerName)
+			return
+		}
+
+		triggers = append(triggers, trigger)
+	})
+	return triggers
+}
+
 func extractAbilities(abilityNode *goquery.Selection) ([]string, error) {
 	var ability []string
 	abilityNode.Find("img").Each(func(i int, s *goquery.Selection) {
@@ -525,8 +563,10 @@ func extractAbilities(abilityNode *goquery.Selection) ([]string, error) {
 		if has {
 			_, _imgPlaceHolder := path.Split(url)
 			_imgPlaceHolder = strings.Split(_imgPlaceHolder, ".")[0]
-			t := fmt.Sprintf("[%v]", triggersMap[_imgPlaceHolder])
-			s.ReplaceWithHtml(t)
+			if trigger, ok := triggersMap[_imgPlaceHolder]; ok {
+				t := fmt.Sprintf("[%s]", string(trigger))
+				s.ReplaceWithHtml(t)
+			}
 		}
 	})
 	abilityNodeHtml, err := abilityNode.Html()

@@ -153,7 +153,7 @@ func TestExtractData_jp(t *testing.T) {
 	`
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(chara))
-	expectedTrigger := []string{"SOUL", "RETURN", "SHOT", "TREASURE", "STANDBY", "COMEBACK", "GATE", "DRAW"}
+	expectedTrigger := []Trigger{TriggerSoul, TriggerReturn, TriggerShot, TriggerTreasure, TriggerStandby, TriggerComeback, TriggerGate, TriggerDraw}
 	expectedTrait := []string{"音楽", "Afterglow"}
 	expectedAbility := []string{
 		"【永】 あなたのターン中、他のあなたの「“止まらずに、前へ”美竹蘭」がいるなら、このカードのパワーを＋6000。",
@@ -318,7 +318,7 @@ func TestExtractData_jp_multiSideCard(t *testing.T) {
 		Rarity:        "SP",
 		ImageURL:      "https://ws-tcg.com/wordpress/wp-content/images/cardlist/g/g_ws02/gso_ws02_124sp.png",
 		Traits:        []string{"電撃文庫", "アバター", "武器"},
-		Triggers:      []string{},
+		Triggers:      []Trigger{},
 		Text: []string{
 			"【自】 このカードが手札から舞台に置かれた時、他のあなたの、《電撃文庫》か《アバター》か《ネット》のキャラがいるなら、そのターン中、このカードのパワーを＋2000。",
 			"【自】 加速 ［(1) あなたの山札の上から1枚をクロック置場に置き、手札を1枚控え室に置く］ このカードがアタックした時、あなたはコストを払ってよい。そうしたら、あなたは自分の山札を見て《電撃文庫》か《アバター》か《ネット》のキャラを2枚まで選んで相手に見せ、手札に加え、その山札をシャッフルする。",
@@ -353,7 +353,7 @@ func TestExtractDataEvent_jp(t *testing.T) {
 	`
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(chara))
-	var expectedTrigger []string
+	var expectedTrigger []Trigger
 
 	if err != nil {
 		t.Fatal(err)
@@ -436,7 +436,7 @@ func TestExtractDataCX_jp(t *testing.T) {
 		Power:         nil,
 		Rarity:        "CR",
 		ImageURL:      "https://ws-tcg.com/wordpress/wp-content/images/cardlist/b/bd_w63/bd_w63_025.png",
-		Triggers:      []string{"SOUL", "RETURN"},
+		Triggers:      []Trigger{TriggerSoul, TriggerReturn},
 		Text: []string{
 			"【永】 あなたのキャラすべてに、パワーを＋1000し、ソウルを＋1。",
 			"（[RETURN]：このカードがトリガーした時、あなたは相手のキャラを1枚選び、手札に戻してよい）",
@@ -661,7 +661,7 @@ func TestExtractData_en_multiIconAbility(t *testing.T) {
 		ExpansionSlug:       "bp-atla",
 		ExpansionProductURL: "https://en.ws-tcg.com/products/bp-atla/",
 		ExpansionSourceType: ExpansionSourceTypeProductPage,
-		Triggers:            []string{"SOUL"},
+		Triggers:            []Trigger{TriggerSoul},
 		Traits:              []string{"World of Avatar", "Air Nomads"},
 		Text: []string{
 			"【CONT】 If your climax area has a climax with [CHOICE] in its trigger icon, this card in all of your zones get [CHOICE] in the trigger icon. If there is a climax with [TREASURE] in its trigger icon, this card in all of your zones get [TREASURE] in the trigger icon. If there is a climax with [STANDBY] in its trigger icon, this card in all of your zones get [STANDBY] in the trigger icon. If there is a climax with [GATE] in its trigger icon, this card in all of your zones get [GATE] in the trigger icon.",
@@ -671,6 +671,103 @@ func TestExtractData_en_multiIconAbility(t *testing.T) {
 
 	card := extractData(siteConfigs[English], doc.Clone())
 	assertCardEquals(t, card, expectedCard)
+}
+
+func TestExtractData_en_newTriggers(t *testing.T) {
+	html := `
+<div class="p-cards__detail-wrapper">
+	<div class="p-cards__detail-wrapper-inner">
+		<div class="image"><img src="/wp/wp-content/images/cardimages/TST/TST_W01_001.png" alt="New Trigger Test" decoding="async"></div>
+		<div class="p-cards__detail-textarea">
+			<p class="number">TST/W01-001</p>
+			<p class="ttl u-mt-14 u-mt-16-sp">New Trigger Test</p>
+			<div class="p-cards__detail-type u-mt-22 u-mt-40-sp">
+				<dl><dt>Expansion</dt><dd>Trigger Test</dd></dl>
+				<dl><dt>Traits</dt><dd>Test</dd></dl>
+				<dl><dt>Card Type</dt><dd>Climax</dd></dl>
+				<dl><dt>Rarity</dt><dd>CX</dd></dl>
+				<dl><dt>Side</dt><dd><img src="/cardlist/partimages/w.gif" alt="" decoding="async"></dd></dl>
+				<dl><dt>Color</dt><dd><img src="/wp/wp-content/images/partimages/blue.gif"></dd></dl>
+			</div>
+			<div class="p-cards__detail-status u-mt-22 u-mt-40-sp">
+				<dl><dt>Level</dt><dd>-</dd></dl>
+				<dl><dt>Cost</dt><dd>-</dd></dl>
+				<dl><dt>Power</dt><dd>-</dd></dl>
+				<dl><dt>Trigger</dt><dd><img src="/wp/wp-content/images/partimages/discovery.gif"><img src="/wp/wp-content/images/partimages/chance.gif"></dd></dl>
+				<dl><dt>Soul</dt><dd>-</dd></dl>
+			</div>
+			<div class="p-cards__detail u-mt-22 u-mt-40-sp">
+				<p>【CONT】 All of your characters get +1000 power.<br>(<img src="/wp/wp-content/images/partimages/chance.gif">: Trigger test text)</p>
+			</div>
+			<div class="p-cards__detail-serif u-mt-22 u-mt-40-sp">
+				<p>-</p>
+			</div>
+		</div>
+	</div>
+</div>
+`
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	card := extractData(siteConfigs[English], doc.Clone())
+	expectedTriggers := []Trigger{TriggerDiscovery, TriggerChance}
+	if !equalSlice(card.Triggers, expectedTriggers) {
+		t.Errorf("got %v: expected %v", card.Triggers, expectedTriggers)
+	}
+
+	expectedAbility := []string{
+		"【CONT】 All of your characters get +1000 power.",
+		"([CHANCE]: Trigger test text)",
+	}
+	if !equalSlice(card.Text, expectedAbility) {
+		t.Errorf("got %v: expected %v", card.Text, expectedAbility)
+	}
+}
+
+func TestExtractData_jp_newTriggers(t *testing.T) {
+	html := `
+<tr>
+<th><a href="/cardlist/?cardno=TST/W01-001&amp;l"><img src="/wordpress/wp-content/images/cardlist/t/tst_w01/tst_w01_001.png" alt="新トリガーテスト"></a></th>
+<td>
+<h4><a href="/cardlist/?cardno=TST/W01-001&amp;l"><span>新トリガーテスト</span>(<span>TST/W01-001</span>)</a> -トリガーテスト<br></h4>
+<span class="unit">サイド：<img src="/wordpress/wp-content/images/cardlist/_partimages/w.gif"></span>
+<span class="unit">種類：クライマックス</span>
+<span class="unit">レベル：-</span><br>
+<span class="unit">色：<img src="/wordpress/wp-content/images/cardlist/_partimages/blue.gif"></span>
+<span class="unit">パワー：-</span>
+<span class="unit">ソウル：-</span>
+<span class="unit">コスト：-</span><br>
+<span class="unit">レアリティ：CX</span>
+<span class="unit">トリガー：<img src="/wordpress/wp-content/images/cardlist/_partimages/discovery.gif"><img src="/wordpress/wp-content/images/cardlist/_partimages/chance.gif"></span>
+<span class="unit">特徴：<span>-</span></span><br>
+<span class="unit">フレーバー：-</span><br>
+<br>
+<span>【永】 あなたのキャラすべてに、パワーを＋1000。<br>（<img src="/wordpress/wp-content/images/cardlist/_partimages/discovery.gif">：トリガーテスト）</span>
+</td>
+</tr>
+`
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	card := extractData(siteConfigs[Japanese], doc.Clone())
+	expectedTriggers := []Trigger{TriggerDiscovery, TriggerChance}
+	if !equalSlice(card.Triggers, expectedTriggers) {
+		t.Errorf("got %v: expected %v", card.Triggers, expectedTriggers)
+	}
+
+	expectedAbility := []string{
+		"【永】 あなたのキャラすべてに、パワーを＋1000。",
+		"（[DISCOVERY]：トリガーテスト）",
+	}
+	if !equalSlice(card.Text, expectedAbility) {
+		t.Errorf("got %v: expected %v", card.Text, expectedAbility)
+	}
 }
 
 func TestExtractData_en_multiSideCard(t *testing.T) {
@@ -769,7 +866,7 @@ func TestExtractData_en_multiSideCard(t *testing.T) {
 		Power:         intPtr(4000),
 		Rarity:        "SP",
 		ImageURL:      "https://en.ws-tcg.com/wordpress/wp-content/images/cardimages/Gxx/WS02_E124SP.png",
-		Triggers:      []string{},
+		Triggers:      []Trigger{},
 		Traits:        []string{"Dengeki Bunko", "Avatar", "Weapon"},
 		Text: []string{
 			"【AUTO】 When this card is placed on the stage from your hand, if you have another 《Dengeki Bunko》 or 《Avatar》 or 《Net》 character, this card gets +2000 power until end of turn.",
@@ -868,7 +965,7 @@ func TestExtractDataEvent_en(t *testing.T) {
 		t.Errorf("got %v: expected The Day Yuji Disappeared", card.Name)
 	}
 
-	var expectedTrigger []string
+	var expectedTrigger []Trigger
 	if !equalSlice(card.Triggers, expectedTrigger) {
 		t.Errorf("got %v: expected %v", card.Triggers, expectedTrigger)
 	}
@@ -996,7 +1093,7 @@ func TestExtractDataCX_en(t *testing.T) {
 		t.Errorf("got %v: expected nil", card.Cost)
 	}
 
-	expectedTrigger := []string{"SOUL", "GATE"}
+	expectedTrigger := []Trigger{TriggerSoul, TriggerGate}
 	if !equalSlice(card.Triggers, expectedTrigger) {
 		t.Errorf("got %v: expected %v", card.Triggers, expectedTrigger)
 	}
@@ -1106,7 +1203,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Power:         intPtr(1000),
 				Rarity:        "R",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/b/bd_en_w03/BD_EN_W03_004.png",
-				Triggers:      []string{},
+				Triggers:      []Trigger{},
 				Traits:        []string{"Music", "Hello, Happy World!"},
 				Text: []string{
 					"【AUTO】At the beginning of your climax phase, choose 1 of your 《Music》 characters, and that character gets +1000 power until end of turn.",
@@ -1203,7 +1300,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Power:         nil,
 				Rarity:        "PR",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/updates/PR/WS_TCPR_P01.png",
-				Triggers:      []string{"SOUL", "SOUL"},
+				Triggers:      []Trigger{TriggerSoul, TriggerSoul},
 				Traits:        []string{},
 				Text: []string{
 					"【CONT】  All of your characters get +2 soul.",
@@ -1301,7 +1398,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Power:         intPtr(500),
 				Rarity:        "PR",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/RWBY/RWBY_WX03_020PR.png",
-				Triggers:      []string{},
+				Triggers:      []Trigger{},
 				Traits:        []string{"Remnant", "JNPR"},
 				Text: []string{
 					"【AUTO】 When this card becomes 【REVERSE】, if you have another 《Remnant》 character, and this card's battle opponent is level 0 or lower, you may put the top card of your opponent's clock into their waiting room. If you do, put that character into your opponent's clock.",
@@ -1398,7 +1495,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Power:         intPtr(4000),
 				Rarity:        "PR",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/updates/PR/BFR_BSL2021_03SPR.png",
-				Triggers:      []string{},
+				Triggers:      []Trigger{},
 				Traits:        []string{"Game", "Weapon"},
 				Text: []string{
 					"【AUTO】 When your climax is placed on your climax area, this card gets +3000 power until end of turn.",
@@ -1495,7 +1592,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Power:         intPtr(2000),
 				Rarity:        "SSP+",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/TSK2/TSK_S82_E070S.png",
-				Triggers:      []string{},
+				Triggers:      []Trigger{},
 				Traits:        []string{"Demon Continent", "Slime"},
 				Text: []string{
 					"【AUTO】 When this card is placed on the stage from your hand, reveal the top card of your deck. If that card is a 《Demon Continent》 character, this card gets +1 level and +1500 power until end of turn. (Return the revealed card to its original place)",
@@ -1590,7 +1687,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 				Power:         intPtr(2500),
 				Rarity:        "N",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/BDCC/WE42_E096_N.png",
-				Triggers:      []string{"SOUL"},
+				Triggers:      []Trigger{TriggerSoul},
 				Traits:        []string{"Music", "Roselia"},
 				Text: []string{
 					"【AUTO】 [(2) Put 1 character from your stage into your waiting room] When you use this card's \"Backup\", you may pay the cost. If you do, choose 1 of your opponent's characters with level higher than your opponent's level, and put it into their waiting room.",
@@ -1706,7 +1803,7 @@ func TestExtractData_en_improperColor(t *testing.T) {
 				Power:         intPtr(4500),
 				Rarity:        "C",
 				ImageURL:      "https://en.ws-tcg.com/wp/wp-content/images/cardimages/SFN/S108_E020.png",
-				Triggers:      []string{"SOUL"},
+				Triggers:      []Trigger{TriggerSoul},
 				Traits:        []string{"Adventurer", "Magic"},
 				Text: []string{
 					"【CONT】 Assist All of your characters in front of this card get +X power. X is equal to that character's level ×500.",

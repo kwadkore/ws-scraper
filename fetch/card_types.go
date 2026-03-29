@@ -29,6 +29,24 @@ const (
 	CardColorPurple CardColor = "PURPLE"
 )
 
+// Trigger identifies a climax trigger icon.
+type Trigger string
+
+const (
+	TriggerSoul      Trigger = "SOUL"
+	TriggerComeback  Trigger = "COMEBACK"
+	TriggerDraw      Trigger = "DRAW"
+	TriggerPool      Trigger = "POOL"
+	TriggerTreasure  Trigger = "TREASURE"
+	TriggerShot      Trigger = "SHOT"
+	TriggerReturn    Trigger = "RETURN"
+	TriggerGate      Trigger = "GATE"
+	TriggerStandby   Trigger = "STANDBY"
+	TriggerChoice    Trigger = "CHOICE"
+	TriggerDiscovery Trigger = "DISCOVERY"
+	TriggerChance    Trigger = "CHANCE"
+)
+
 // ExpansionSourceType identifies where the enriched expansion metadata came from.
 type ExpansionSourceType string
 
