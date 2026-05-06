@@ -142,6 +142,7 @@ var baseRarity = []string{
 }
 
 var triggersMap = map[string]Trigger{
+	"bushi":     TriggerBushi, // https://ws-tcg.com/cardlist/search/?keyword=WS%2FKDN-246
 	"soul":      TriggerSoul,
 	"salvage":   TriggerComeback,
 	"comeback":  TriggerComeback,

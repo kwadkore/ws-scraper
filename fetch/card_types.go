@@ -33,6 +33,7 @@ const (
 type Trigger string
 
 const (
+	TriggerBushi     Trigger = "BUSHI"
 	TriggerSoul      Trigger = "SOUL"
 	TriggerComeback  Trigger = "COMEBACK"
 	TriggerDraw      Trigger = "DRAW"
