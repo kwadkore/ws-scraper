@@ -83,6 +83,13 @@ func findProductLink(config siteConfig, mainHTML *goquery.Selection) *url.URL {
 }
 
 func (c *Client) resolvePromoExpansionMetadata(ctx context.Context, lang SiteLanguage, card Card) resolvedExpansion {
+	meta, _ := c.resolvePromoExpansionMetadataEntry(ctx, lang, card)
+	return meta
+}
+
+func (c *Client) resolvePromoExpansionMetadataEntry(ctx context.Context, lang SiteLanguage, card Card) (resolvedExpansion, bool) {
+	// Use the parsed release/name as fallback metadata when the promo listing
+	// is unavailable or doesn't contain this exact card number.
 	meta := resolvedExpansion{
 		Code:        card.Release,
 		DisplayName: card.ExpansionName,
@@ -92,12 +99,12 @@ func (c *Client) resolvePromoExpansionMetadata(ctx context.Context, lang SiteLan
 
 	entries, err := c.promoListingEntries(ctx, lang)
 	if err != nil {
-		return meta
+		return meta, false
 	}
 
 	entry, ok := entries[normalizePromoCardNumber(card.CardNumber)]
 	if !ok {
-		return meta
+		return meta, false
 	}
 
 	if entry.DisplayName != "" {
@@ -106,7 +113,21 @@ func (c *Client) resolvePromoExpansionMetadata(ctx context.Context, lang SiteLan
 	if entry.Code != "" {
 		meta.Code = entry.Code
 	}
-	return meta
+	return meta, true
+}
+
+func (c *Client) resolveExpansionMetadata(ctx context.Context, lang SiteLanguage, card Card) resolvedExpansion {
+	// Promo listings are authoritative for promo printings. Some promo card
+	// detail pages link to the underlying product page, even though the card
+	// belongs to the PR distribution listed on the official promo page.
+	promoMeta, promoMatch := c.resolvePromoExpansionMetadataEntry(ctx, lang, card)
+	if promoMatch {
+		return promoMeta
+	}
+	if card.ExpansionProductURL != "" {
+		return c.resolveProductExpansionMetadata(ctx, card)
+	}
+	return promoMeta
 }
 
 func (c *Client) resolveProductExpansionMetadata(ctx context.Context, card Card) resolvedExpansion {

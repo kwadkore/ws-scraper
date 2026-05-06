@@ -200,6 +200,56 @@ SP (Special) cards with Unique Hot Stamps and ATR (Avatar Rare)</dd>
 	}
 }
 
+func TestResolveExpansionMetadataPrefersPromoListingOverProductPage(t *testing.T) {
+	client, err := NewClient(WithRespectRobots(false), WithMaxRetries(0))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	defer client.Close()
+
+	client.httpClient.Transport = clientRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.String() {
+		case englishPromoListingURL:
+			body := `
+<html><body>
+  <table>
+    <tr><th>Card No.</th><th>Card Name</th><th>Title</th><th>Distribution</th><th>Release Date</th></tr>
+    <tr><td>RKN/BCS2526-03</td><td>Inherited Will, Kenshin</td><td>RKN</td><td>BCS 25/26 Participation PR Pack</td><td>07 / 01 / 2025</td></tr>
+  </table>
+</body></html>`
+			return newHTTPResponse(r, http.StatusOK, nil, body), nil
+		case "https://en.ws-tcg.com/products/bp-rkn/":
+			t.Fatalf("product page should not be fetched for promo listing match")
+		default:
+			t.Fatalf("unexpected URL: %s", r.URL.String())
+		}
+		return nil, nil
+	})
+
+	meta := client.resolveExpansionMetadata(context.Background(), English, Card{
+		CardNumber:                  "RKN/BCS2526-03",
+		ExpansionName:               "Rurouni Kenshin",
+		ExpansionSlug:               "bp-rkn",
+		ExpansionProductDisplayName: "",
+		ExpansionProductURL:         "https://en.ws-tcg.com/products/bp-rkn/",
+		ExpansionSourceType:         ExpansionSourceTypeProductPage,
+		Release:                     "BCS2526",
+	})
+
+	if meta.DisplayName != "BCS 25/26 Participation PR Pack" {
+		t.Fatalf("unexpected DisplayName: %q", meta.DisplayName)
+	}
+	if meta.Code != "BCS2526" {
+		t.Fatalf("unexpected Code: %q", meta.Code)
+	}
+	if meta.ProductURL != "" {
+		t.Fatalf("unexpected ProductURL: %q", meta.ProductURL)
+	}
+	if meta.SourceType != ExpansionSourceTypePromoListing {
+		t.Fatalf("unexpected SourceType: %q", meta.SourceType)
+	}
+}
+
 func TestParseProductDisplayNameJapaneseUsesLiveStructure(t *testing.T) {
 	html := `
 <div class="entry-content">
