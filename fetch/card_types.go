@@ -36,6 +36,7 @@ const (
 	TriggerSoul      Trigger = "SOUL"
 	TriggerComeback  Trigger = "COMEBACK"
 	TriggerDraw      Trigger = "DRAW"
+	TriggerFocus     Trigger = "FOCUS"
 	TriggerPool      Trigger = "POOL"
 	TriggerTreasure  Trigger = "TREASURE"
 	TriggerShot      Trigger = "SHOT"
