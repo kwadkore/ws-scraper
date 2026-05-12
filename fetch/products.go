@@ -60,14 +60,22 @@ func (c *Client) getDocument(ctx context.Context, rawURL string, referer string)
 func extractProductInfo(doc *goquery.Document) (ProductInfo, error) {
 	var setCode string
 	releaseDate := strings.Split(strings.TrimSpace(doc.Find(".release strong").Text()), "(")[0]
+	if releaseDate == "" {
+		releaseDate = normalizeSpace(doc.Find(".products__specLists dt").FilterFunction(func(i int, s *goquery.Selection) bool {
+			return normalizeSpace(s.Text()) == "発売日"
+		}).First().NextFiltered("dd").Text())
+	}
 	titleAndWorkNumber := strings.TrimSpace(doc.Find(".release").Text())
+	if titleAndWorkNumber == "" {
+		titleAndWorkNumber = normalizeSpace(doc.Find(".products__specs").Text())
+	}
 
 	matches := titleAndWorkNumberRegexp.FindStringSubmatch(titleAndWorkNumber)
 	if matches == nil {
 		return ProductInfo{}, fmt.Errorf("string %q doesn't match expected format", titleAndWorkNumber)
 	}
 	licenceCode := matches[1]
-	doc.Find(".entry-content img").Each(func(i int, s *goquery.Selection) {
+	doc.Find(".entry-content img, .products__img img, .products__article img").Each(func(i int, s *goquery.Selection) {
 		src, _ := s.Attr("src")
 		filename := path.Base(src)
 		parts := strings.Split(filename, "_")
@@ -75,13 +83,25 @@ func extractProductInfo(doc *goquery.Document) (ProductInfo, error) {
 			setCode = parts[2]
 		}
 	})
+	if setCode == "" {
+		setCode = licenceCode
+	}
+
+	title := doc.Find(".entry-content > h3").Text()
+	if strings.TrimSpace(title) == "" {
+		title = doc.Find(".products__articleName").Text()
+	}
+	image := doc.Find(".product-detail .alignright img").AttrOr("src", "")
+	if image == "" {
+		image = doc.Find(".products__img img").AttrOr("src", "notfound")
+	}
 
 	return ProductInfo{
 		ReleaseDate: releaseDate,
-		Title:       doc.Find(".entry-content > h3").Text(),
+		Title:       normalizeSpace(title),
 		LicenceCode: licenceCode,
 		SetCode:     setCode,
-		Image:       doc.Find(".product-detail .alignright img").AttrOr("src", "notfound"),
+		Image:       image,
 	}, nil
 }
 
@@ -93,7 +113,7 @@ func (c *Client) Products(ctx context.Context, page string) ([]ProductInfo, erro
 
 	var productList []ProductInfo
 	var firstErr error
-	doc.Find(".product-list .show-detail a").Each(func(i int, s *goquery.Selection) {
+	doc.Find(".product-list .show-detail a, #js-productsList .products__item a.products__link").Each(func(i int, s *goquery.Selection) {
 		productDetail := s.AttrOr("href", "")
 		if productDetail == "" {
 			return

@@ -154,6 +154,45 @@ func TestExtractProductInfo(t *testing.T) {
 	}
 }
 
+func TestExtractProductInfoRedesignedPage(t *testing.T) {
+	html := `
+<article>
+  <div class="products__img"><img src="https://ws-tcg.com/wordpress/wp-content/uploads/2026/04/30175749/0430_osk_400%C3%97400.jpg" alt=""></div>
+  <div class="products__specs">
+    <h1 class="products__articleName">【推しの子】Vol.3</h1>
+    <dl class="products__specLists">
+      <dt class="products__specItem--title">発売日</dt>
+      <dd class="products__specItem--detail">2026年8月7日(金)</dd>
+    </dl>
+    <p>【 タイトル区分：【推しの子】 / 作品番号：OSK 】</p>
+  </div>
+</article>`
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	product, err := extractProductInfo(doc)
+	if err != nil {
+		t.Fatalf("extractProductInfo failed: %v", err)
+	}
+	if product.ReleaseDate != "2026年8月7日(金)" {
+		t.Fatalf("unexpected ReleaseDate: %q", product.ReleaseDate)
+	}
+	if product.Title != "【推しの子】Vol.3" {
+		t.Fatalf("unexpected Title: %q", product.Title)
+	}
+	if product.LicenceCode != "OSK" {
+		t.Fatalf("unexpected LicenceCode: %q", product.LicenceCode)
+	}
+	if product.SetCode != "OSK" {
+		t.Fatalf("unexpected SetCode: %q", product.SetCode)
+	}
+	if product.Image != "https://ws-tcg.com/wordpress/wp-content/uploads/2026/04/30175749/0430_osk_400%C3%97400.jpg" {
+		t.Fatalf("unexpected Image: %q", product.Image)
+	}
+}
+
 const productHTMLUnexpectedTitle = `
 <div class="entry-content">
 <h3>トライアルデッキ 富士見ファンタジア文庫 Vol.2</h3>

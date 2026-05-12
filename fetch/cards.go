@@ -458,6 +458,10 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 		}
 	}
 
+	if cfg.Language == Japanese {
+		return c.cardsStreamJapanese(ctx, cfg, urlValues, cardCh)
+	}
+
 	var scrapeTasks []*scrapeTask
 	defaultScrapeTask := scrapeTask{
 		siteConfig: siteCfg,
@@ -587,6 +591,20 @@ func (c *Client) ExpansionList(ctx context.Context, cfg Config) (map[int]string,
 	} else {
 		siteCfg = c
 		slog.Info(fmt.Sprintf("Fetching %v expansion list", cfg.Language))
+	}
+
+	if cfg.Language == Japanese {
+		options, err := c.japaneseFilterOptions(ctx)
+		if err != nil {
+			return nil, err
+		}
+		eMap := make(map[int]string, len(options.Expansions))
+		for _, exp := range options.Expansions {
+			if exp.ID != 0 && exp.Name != "" {
+				eMap[exp.ID] = exp.Name
+			}
+		}
+		return eMap, nil
 	}
 
 	respData, err := c.request(ctx, requestOptions{

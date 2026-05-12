@@ -356,16 +356,21 @@ func TestResolvePromoExpansionMetadataJapanese(t *testing.T) {
 	defer client.Close()
 
 	client.httpClient.Transport = clientRoundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != japanesePromoListingURL {
+		if r.URL.Path != "/manage/pr-card/searchJson" {
 			t.Fatalf("unexpected URL: %s", r.URL.String())
 		}
-		body := `
-<html><body>
-  <table>
-    <tr><th>カード番号</th><th>カード名称</th><th>主な配布方法</th><th>ネオスタンダード区分</th></tr>
-    <tr><td>BD/W47-P11a</td><td>冬制服 牛込りみ</td><td>『月刊ブシロード』2017年4月号付録</td><td>BanG Dream!</td></tr>
-  </table>
-</body></html>`
+		if got := r.URL.Query().Get("limit"); got != "100" {
+			t.Fatalf("unexpected limit: %q", got)
+		}
+		body := `{
+  "items": [
+    {"card_number":"BD/W47-P11a","dist_way":"『月刊ブシロード』2017年4月号付録"}
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 100,
+  "success": true
+}`
 		return newHTTPResponse(r, http.StatusOK, nil, body), nil
 	})
 

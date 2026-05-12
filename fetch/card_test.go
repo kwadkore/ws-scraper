@@ -13,6 +13,83 @@ func intPtr(v int) *int {
 	return &v
 }
 
+func TestCardFromJapaneseAPIItem(t *testing.T) {
+	item := japaneseCardItem{
+		ID:          2331,
+		CardNumber:  "DC/W01-002",
+		TitleNumber: "DC",
+		CardName:    "朝倉 音姫",
+		CardKind:    "2",
+		Color:       "[[yellow.gif]]",
+		Level:       "1",
+		Cost:        "1",
+		Power:       "6000",
+		Soul:        "[[soul.gif]]",
+		CardTrigger: "[[soul.gif]][[gate.gif]]",
+		Text:        "【自】 アンコール<br />【起】 集中",
+		Flavor:      "お昼まだでしょ？",
+		Picture:     "d/dc_w01/dc_w01_002.png",
+		Expansion:   1,
+		Rare:        "RR",
+		Feature1:    "魔法",
+		Feature2:    "生徒会",
+		Feature3:    "-",
+		Side:        "-1",
+	}
+
+	card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, "D.C. D.C.II")
+	want := Card{
+		CardNumber:    "DC/W01-002",
+		SetID:         "DC",
+		ExpansionName: "D.C. D.C.II",
+		Sides:         []Side{SideWeiss},
+		Release:       "W01",
+		ReleasePackID: "01",
+		ID:            "002",
+		Language:      "ja",
+		Type:          CardTypeCharacter,
+		Name:          "朝倉 音姫",
+		Color:         CardColorYellow,
+		Level:         intPtr(1),
+		Cost:          intPtr(1),
+		Power:         intPtr(6000),
+		Soul:          intPtr(1),
+		FlavorText:    "お昼まだでしょ？",
+		Rarity:        "RR",
+		ImageURL:      "https://ws-tcg.com/wordpress/wp-content/images/cardlist/d/dc_w01/dc_w01_002.png",
+		Triggers:      []Trigger{TriggerSoul, TriggerGate},
+		Traits:        []string{"魔法", "生徒会"},
+		Text:          []string{"【自】 アンコール", "【起】 集中"},
+	}
+	assertCardEquals(t, card, want)
+}
+
+func TestCardFromJapaneseAPIItemMultiSideClimax(t *testing.T) {
+	item := japaneseCardItem{
+		CardNumber:  "Gso/WS02-124SP",
+		CardName:    "巡り合う二人 キリト＆アスナ",
+		CardKind:    "4",
+		Color:       "[[blue.gif]]",
+		CardTrigger: "[[choice.gif]]",
+		Text:        "【永】 あなたのキャラすべてに、ソウルを＋2。",
+		Picture:     "g/g_ws02/gso_ws02_124sp.png",
+		Expansion:   10,
+		Rare:        "SP",
+		Side:        "-3",
+	}
+
+	card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, "電撃文庫")
+	if !equalSlice(card.Sides, []Side{SideWeiss, SideSchwarz}) {
+		t.Fatalf("unexpected sides: %v", card.Sides)
+	}
+	if card.Type != CardTypeClimax {
+		t.Fatalf("unexpected type: %q", card.Type)
+	}
+	if !equalSlice(card.Triggers, []Trigger{TriggerChoice}) {
+		t.Fatalf("unexpected triggers: %v", card.Triggers)
+	}
+}
+
 func equalIntPtr(a, b *int) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil

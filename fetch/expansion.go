@@ -233,7 +233,7 @@ func (c *Client) fetchPromoListingEntries(ctx context.Context, lang SiteLanguage
 	case English:
 		rawURL = englishPromoListingURL
 	case Japanese:
-		rawURL = japanesePromoListingURL
+		return c.fetchJapanesePromoListingEntries(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported language for promo listing: %v", lang)
 	}
@@ -339,7 +339,10 @@ func parseProductDisplayName(productURL string, doc *goquery.Document) string {
 	case strings.Contains(productURL, "en.ws-tcg.com"):
 		raw = doc.Find(".p-products__item-detail .p-products__ttl").First().Text()
 	case strings.Contains(productURL, "ws-tcg.com"):
-		raw = doc.Find(".entry-content h3").First().Text()
+		raw = doc.Find(".products__articleName").First().Text()
+		if strings.TrimSpace(raw) == "" {
+			raw = doc.Find(".entry-content h3").First().Text()
+		}
 	}
 	return cleanProductPageTitle(raw)
 }

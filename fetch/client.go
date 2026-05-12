@@ -59,6 +59,10 @@ type Client struct {
 	promoListings   map[SiteLanguage]map[string]promoListingEntry
 	productPagesMu  sync.Mutex
 	productPages    map[string]resolvedExpansion
+	jpFilterMu      sync.Mutex
+	jpFilterOptions *japaneseFilterOptions
+	jpProductsMu    sync.Mutex
+	jpProducts      map[int]resolvedExpansion
 	logger          *slog.Logger
 }
 
@@ -128,6 +132,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		robotsByHost:   make(map[string]robotsPolicy),
 		promoListings:  make(map[SiteLanguage]map[string]promoListingEntry),
 		productPages:   make(map[string]resolvedExpansion),
+		jpProducts:     make(map[int]resolvedExpansion),
 		logger:         slog.Default(),
 	}
 
