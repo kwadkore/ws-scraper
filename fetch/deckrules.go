@@ -64,7 +64,8 @@ type TitleDeckGroup struct {
 	// SourceURL is the rules page that produced this group.
 	SourceURL string `json:"sourceURL"`
 	// Notes contains parser-preserved context from the source row when useful,
-	// such as side-selection notes from the Japanese rules page.
+	// such as dual-side notes from Japanese filter-options titles (side=-3) or
+	// legacy side-selection notes from older HTML table snapshots.
 	Notes []string `json:"notes,omitempty"`
 }
 
@@ -130,11 +131,18 @@ func (c *Client) DeckRules(ctx context.Context, cfg DeckRulesConfig) (DeckRules,
 		}
 		return parseEnglishDeckRules(doc)
 	case Japanese:
+		// jquery.rules.js loads title families via AJAX from
+		// CardListUser/filter-options (res.sides). Restrictions/free-floaters
+		// come from the HTML document.
 		doc, err := c.getDocument(ctx, japaneseDeckRulesURL, "")
 		if err != nil {
 			return DeckRules{}, err
 		}
-		return parseJapaneseDeckRules(doc)
+		filterOptions, err := c.japaneseFilterOptions(ctx)
+		if err != nil {
+			return DeckRules{}, err
+		}
+		return parseJapaneseDeckRules(doc, filterOptions)
 	default:
 		return DeckRules{}, fmt.Errorf("unsupported language: %v", cfg.Language)
 	}
@@ -210,10 +218,17 @@ func parseEnglishDeckConstruction(doc *goquery.Document) ([]TitleDeckGroup, erro
 	return groups, nil
 }
 
-func parseJapaneseDeckRules(doc *goquery.Document) (DeckRules, error) {
-	titleGroups, err := parseJapaneseDeckConstruction(doc)
-	if err != nil {
-		return DeckRules{}, err
+func parseJapaneseDeckRules(doc *goquery.Document, filterOptions japaneseFilterOptions) (DeckRules, error) {
+	titleGroups, filterErr := titleDeckGroupsFromJapaneseFilterOptions(filterOptions)
+	if filterErr != nil {
+		// Older page snapshots still embed Weiss/Schwarz title tables. Prefer
+		// filter-options (matching the live site), but keep HTML parsing as a
+		// fallback for fixtures and historical pages.
+		var htmlErr error
+		titleGroups, htmlErr = parseJapaneseDeckConstruction(doc)
+		if htmlErr != nil {
+			return DeckRules{}, fmt.Errorf("japanese title groups: filter-options: %w; html fallback: %v", filterErr, htmlErr)
+		}
 	}
 	freeFloaters, restrictions, err := parseJapaneseRestrictions(doc)
 	if err != nil {
@@ -226,9 +241,70 @@ func parseJapaneseDeckRules(doc *goquery.Document) (DeckRules, error) {
 	}, nil
 }
 
+// titleDeckGroupsFromJapaneseFilterOptions converts filter-options sides into
+// side-aware TitleDeckGroup values. This matches the live deck-rules page,
+// which renders title_number codes from the same JSON (##CODE##… encoding)
+// instead of static HTML tables.
+//
+// Side -3 (dual-side) titles emit one group per side with the same combined
+// code list.
+func titleDeckGroupsFromJapaneseFilterOptions(options japaneseFilterOptions) ([]TitleDeckGroup, error) {
+	if len(options.Sides) == 0 {
+		return nil, fmt.Errorf("japanese filter-options contained no title sides")
+	}
+
+	var groups []TitleDeckGroup
+	for _, title := range options.Sides {
+		if title.DelFlg != 0 {
+			continue
+		}
+		codes := parseJapaneseTitleNumberCodes(title.TitleNumber)
+		if title.Name == "" || len(codes) == 0 {
+			continue
+		}
+		sides := sidesFromJapaneseAPI(strconv.Itoa(title.Side))
+		if len(sides) == 0 {
+			continue
+		}
+		var notes []string
+		if title.Side == -3 {
+			notes = append(notes, "dual-side title; filter-options lists the combined code set for both sides")
+		}
+		for _, side := range sides {
+			groups = append(groups, normalizeTitleDeckGroup(titleDeckRow{
+				side:      side,
+				title:     title.Name,
+				codes:     append([]string(nil), codes...),
+				notes:     append([]string(nil), notes...),
+				sourceURL: japaneseDeckRulesURL,
+				language:  Japanese.String(),
+			}))
+		}
+	}
+	if len(groups) == 0 {
+		return nil, fmt.Errorf("no Japanese title rows parsed from filter-options")
+	}
+	return groups, nil
+}
+
+// parseJapaneseTitleNumberCodes splits filter-options title_number values such
+// as "##BD##BDY##" into ["BD", "BDY"].
+func parseJapaneseTitleNumberCodes(raw string) []string {
+	parts := strings.Split(raw, "##")
+	var codes []string
+	for _, part := range parts {
+		part = normalizeWhitespace(part)
+		if part == "" {
+			continue
+		}
+		codes = append(codes, part)
+	}
+	return uniquePreserveOrder(codes)
+}
+
 func parseJapaneseDeckConstruction(doc *goquery.Document) ([]TitleDeckGroup, error) {
-	entry := doc.Find(".entry-content").First()
-	if entry.Length() == 0 {
+	entry := japaneseRulesContent(doc)
+	if entry == nil {
 		return nil, fmt.Errorf("couldn't find Japanese rules content")
 	}
 
@@ -530,13 +606,12 @@ func parseEnglishRestrictions(doc *goquery.Document) ([]FreeFloaterGroup, []Rest
 }
 
 func parseJapaneseRestrictions(doc *goquery.Document) ([]FreeFloaterGroup, []RestrictionGroup, error) {
-	entry := doc.Find(".entry-content").First()
-	if entry.Length() == 0 {
+	entry := japaneseRulesContent(doc)
+	if entry == nil {
 		return nil, nil, fmt.Errorf("couldn't find Japanese rules content")
 	}
 
 	var freeFloaters []FreeFloaterGroup
-	var groups []RestrictionGroup
 
 	// TODO: Parse the separate "タイトル限定構築特例カード一覧" compatibility table.
 	// It is intentionally excluded from the returned client-facing data for now.
@@ -586,6 +661,148 @@ func parseJapaneseRestrictions(doc *goquery.Document) ([]FreeFloaterGroup, []Res
 		return false
 	})
 
+	// Live pages use article__accordion sections instead of <details> tables.
+	groups := parseJapaneseRestrictionsAccordion(entry)
+	if len(groups) == 0 {
+		var err error
+		groups, err = parseJapaneseRestrictionsLegacyTable(entry)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if len(groups) == 0 {
+		return nil, nil, fmt.Errorf("no Japanese restriction data parsed")
+	}
+	return freeFloaters, attachRestrictionGroupNotes(groups), nil
+}
+
+// japaneseRulesContent finds the main deck-rules body. The redesigned Japanese
+// site uses .article__inner / .rule-article; older snapshots used .entry-content.
+func japaneseRulesContent(doc *goquery.Document) *goquery.Selection {
+	for _, selector := range []string{".article__inner", ".rule-article", ".entry-content"} {
+		if entry := doc.Find(selector).First(); entry.Length() > 0 {
+			return entry
+		}
+	}
+	return nil
+}
+
+// parseJapaneseRestrictionsAccordion parses the current live markup where each
+// title is an <h4>, restriction badges are styled <div>s (使用不可 / N種選抜 /
+// N枚まで使用可), and cards are <p> rows with cardlist links.
+func parseJapaneseRestrictionsAccordion(entry *goquery.Selection) []RestrictionGroup {
+	var groups []RestrictionGroup
+	entry.Find(".article__accordion").EachWithBreak(func(_ int, accordion *goquery.Selection) bool {
+		summary := normalizeWhitespace(accordion.Find(".article__accordionTitle").First().Text())
+		if !strings.Contains(summary, "ネオスタンダード構築／タイトル限定構築") {
+			return true
+		}
+		content := accordion.Find(".article__accordionContent").First()
+		if content.Length() == 0 {
+			return true
+		}
+
+		currentTitle := ""
+		currentIndex := -1
+		content.Children().Each(func(_ int, node *goquery.Selection) {
+			switch goquery.NodeName(node) {
+			case "h4":
+				currentTitle = normalizeWhitespace(node.Text())
+				currentIndex = -1
+			case "div":
+				label := normalizeWhitespace(node.Text())
+				if currentTitle == "" || !isJapaneseRestrictionBadge(label) {
+					if currentIndex >= 0 && looksLikeRestrictionNote(label) {
+						groups[currentIndex].Notes = append(groups[currentIndex].Notes, label)
+					}
+					return
+				}
+				restriction := parseRestrictionLabel(label, Japanese.String(), japaneseDeckRulesURL)
+				restriction.Notes = append(restriction.Notes, "groupName="+currentTitle)
+				groups = append(groups, restriction)
+				currentIndex = len(groups) - 1
+			case "p":
+				if currentTitle == "" || currentIndex < 0 {
+					return
+				}
+				card, ok := extractJapaneseRestrictionCard(node)
+				if !ok {
+					note := normalizeWhitespace(node.Text())
+					if looksLikeRestrictionNote(note) {
+						groups[currentIndex].Notes = append(groups[currentIndex].Notes, note)
+					}
+					return
+				}
+				groups[currentIndex].Cards = append(groups[currentIndex].Cards, card)
+			}
+		})
+		return false
+	})
+	return groups
+}
+
+func isJapaneseRestrictionBadge(text string) bool {
+	switch {
+	case strings.Contains(text, "使用不可"),
+		strings.Contains(text, "種選抜"),
+		strings.Contains(text, "枚まで使用可"):
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeRestrictionNote(text string) bool {
+	if text == "" {
+		return false
+	}
+	// Image-only or spacer divs collapse to empty / near-empty text after
+	// normalizeWhitespace; real notes mention deck conditions or exceptions.
+	return strings.Contains(text, "ただし") ||
+		strings.Contains(text, "特別条件") ||
+		strings.Contains(text, "特徴") ||
+		strings.Contains(text, "指定")
+}
+
+func extractJapaneseRestrictionCard(node *goquery.Selection) (RestrictionCard, bool) {
+	cardNumbers := extractCardNumbers(node)
+	if len(cardNumbers) == 0 {
+		return RestrictionCard{}, false
+	}
+	rawName := firstTextBeforeAnchors(node)
+	name := normalizeMarkerText(normalizeWhitespace(rawName))
+	name = strings.Trim(name, " 　/|")
+	if name == "" {
+		return RestrictionCard{}, false
+	}
+	return RestrictionCard{
+		Name:        name,
+		CardNumbers: cardNumbers,
+		IsNew:       containsNewMarker(rawName),
+	}, true
+}
+
+func firstTextBeforeAnchors(sel *goquery.Selection) string {
+	if sel.Length() == 0 || sel.Get(0) == nil {
+		return ""
+	}
+	var b strings.Builder
+	for c := sel.Get(0).FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && c.Data == "a" {
+			break
+		}
+		if c.Type == html.TextNode {
+			b.WriteString(c.Data)
+		}
+	}
+	return b.String()
+}
+
+// parseJapaneseRestrictionsLegacyTable handles older snapshots that stored
+// restrictions in a <details> block with table[border='1'] rows.
+func parseJapaneseRestrictionsLegacyTable(entry *goquery.Selection) ([]RestrictionGroup, error) {
+	var groups []RestrictionGroup
 	var restrictionTable *goquery.Selection
 	entry.Find("details").EachWithBreak(func(i int, details *goquery.Selection) bool {
 		summary := normalizeWhitespace(details.Find("summary").Text())
@@ -600,7 +817,7 @@ func parseJapaneseRestrictions(doc *goquery.Document) ([]FreeFloaterGroup, []Res
 		return false
 	})
 	if restrictionTable == nil || restrictionTable.Length() == 0 {
-		return nil, nil, fmt.Errorf("couldn't find Japanese restriction table")
+		return nil, fmt.Errorf("couldn't find Japanese restriction table")
 	}
 
 	currentTitle := ""
@@ -637,13 +854,17 @@ func parseJapaneseRestrictions(doc *goquery.Document) ([]FreeFloaterGroup, []Res
 				Name:        normalizeMarkerText(normalizeWhitespace(cells.Eq(0).Text())),
 				CardNumbers: extractCardNumbers(cells.Eq(1)),
 			})
+		case 1:
+			if currentIndex < 0 {
+				return
+			}
+			note := normalizeWhitespace(cells.First().Text())
+			if note != "" {
+				groups[currentIndex].Notes = append(groups[currentIndex].Notes, note)
+			}
 		}
 	})
-
-	if len(groups) == 0 {
-		return nil, nil, fmt.Errorf("no Japanese restriction data parsed")
-	}
-	return freeFloaters, attachRestrictionGroupNotes(groups), nil
+	return groups, nil
 }
 
 func parseRestrictionLabel(label string, language string, sourceURL string) RestrictionGroup {

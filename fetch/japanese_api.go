@@ -34,11 +34,18 @@ type japaneseFilterOptions struct {
 	Expansions []japaneseExpansion `json:"expansions"`
 }
 
+// japaneseTitleInfo is one title family from CardListUser/filter-options.
+// The live Japanese deck-rules page loads its title/作品番号 list from this
+// same sides array (see theme jquery.rules.js MASTER_API), rather than
+// embedding Weiss/Schwarz HTML tables.
 type japaneseTitleInfo struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
+	NameKana    string `json:"name_kana"`
 	TitleNumber string `json:"title_number"`
-	Side        int    `json:"side"`
+	// Side uses the official cardlist encoding: -1 Weiss, -2 Schwarz, -3 both.
+	Side   int `json:"side"`
+	DelFlg int `json:"del_flg"`
 }
 
 type japaneseExpansion struct {

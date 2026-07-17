@@ -1,6 +1,8 @@
 package fetch
 
 import (
+	"context"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -93,7 +95,8 @@ func loadJapaneseDeckGroups(t *testing.T) []TitleDeckGroup {
 func loadJapaneseDeckRules(t *testing.T) DeckRules {
 	t.Helper()
 	doc := mustOpenDocument(t, "mockws/deck_rule.html")
-	rules, err := parseJapaneseDeckRules(doc)
+	// Empty filter-options forces the HTML-table fallback used by older page snapshots.
+	rules, err := parseJapaneseDeckRules(doc, japaneseFilterOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,4 +450,186 @@ func TestParseJapaneseDeckRulesParsesChoiceRestrictions(t *testing.T) {
 	if len(choice.Cards) != 2 {
 		t.Fatalf("unexpected choice restriction card count: %d", len(choice.Cards))
 	}
+}
+
+func TestParseJapaneseTitleNumberCodes(t *testing.T) {
+	got := parseJapaneseTitleNumberCodes("##BD##BDY##")
+	want := []string{"BD", "BDY"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("unexpected codes: got %v want %v", got, want)
+	}
+}
+
+func TestTitleDeckGroupsFromJapaneseFilterOptions(t *testing.T) {
+	// Mirrors the live deck-rules page: titles come from filter-options sides,
+	// not from embedded Weiss/Schwarz HTML tables.
+	options := japaneseFilterOptions{
+		Sides: []japaneseTitleInfo{
+			{ID: 31, Name: "BanG Dream!", TitleNumber: "##BD##BDY##", Side: -1},
+			{ID: 40, Name: "ソードアート・オンライン", TitleNumber: "##SAO##Gso##", Side: -2},
+			{ID: 30, Name: "カードゲームしよ子", TitleNumber: "##CGS##SI##", Side: -3},
+			{ID: 139, Name: "電撃文庫", TitleNumber: "##G86##Gas##Gsr##Gso##", Side: -3},
+			{ID: 999, Name: "deleted", TitleNumber: "##XX##", Side: -1, DelFlg: 1},
+		},
+	}
+	groups, err := titleDeckGroupsFromJapaneseFilterOptions(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bandori := findGroup(t, groups, SideWeiss, "BanG Dream!")
+	for _, code := range []string{"BD", "BDY"} {
+		assertContainsCode(t, bandori, code)
+	}
+	if _, ok := findGroupOptional(groups, SideSchwarz, "BanG Dream!"); ok {
+		t.Fatalf("BanG Dream! should not appear on Schwarz from side=-1")
+	}
+
+	sao := findGroup(t, groups, SideSchwarz, "ソードアート・オンライン")
+	assertContainsCode(t, sao, "SAO")
+	assertContainsCode(t, sao, "Gso")
+
+	shiyokoW := findGroup(t, groups, SideWeiss, "カードゲームしよ子")
+	shiyokoS := findGroup(t, groups, SideSchwarz, "カードゲームしよ子")
+	assertContainsCode(t, shiyokoW, "CGS")
+	assertContainsCode(t, shiyokoW, "SI")
+	assertContainsCode(t, shiyokoS, "CGS")
+	assertContainsCode(t, shiyokoS, "SI")
+	if len(shiyokoW.Notes) == 0 {
+		t.Fatalf("expected dual-side note on カードゲームしよ子")
+	}
+
+	dengekiW := findGroup(t, groups, SideWeiss, "電撃文庫")
+	dengekiS := findGroup(t, groups, SideSchwarz, "電撃文庫")
+	// Unlike the old HTML tables, filter-options no longer publishes per-side
+	// subsets, so dual-side titles carry the combined code list on both sides.
+	for _, code := range []string{"G86", "Gas", "Gsr", "Gso"} {
+		assertContainsCode(t, dengekiW, code)
+		assertContainsCode(t, dengekiS, code)
+	}
+
+	if _, ok := findGroupOptional(groups, SideWeiss, "deleted"); ok {
+		t.Fatalf("del_flg=1 titles must be skipped")
+	}
+}
+
+func TestTitleDeckGroupsFromJapaneseFilterOptionsRequiresSides(t *testing.T) {
+	if _, err := titleDeckGroupsFromJapaneseFilterOptions(japaneseFilterOptions{}); err == nil {
+		t.Fatal("expected error when sides are empty")
+	}
+}
+
+func TestParseJapaneseDeckRulesSurfacesFilterOptionsErrorWhenHTMLFallbackFails(t *testing.T) {
+	doc := mustOpenDocument(t, "mockws/deck_rule_live_snip.html")
+	_, err := parseJapaneseDeckRules(doc, japaneseFilterOptions{})
+	if err == nil {
+		t.Fatal("expected combined title-group error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "filter-options") {
+		t.Fatalf("expected filter-options cause in error, got %q", msg)
+	}
+	if !strings.Contains(msg, "html fallback") {
+		t.Fatalf("expected html fallback cause in error, got %q", msg)
+	}
+	if !strings.Contains(msg, "no title sides") {
+		t.Fatalf("expected original filter-options message, got %q", msg)
+	}
+}
+
+func TestParseJapaneseDeckRulesUsesFilterOptionsForTitles(t *testing.T) {
+	doc := mustOpenDocument(t, "mockws/deck_rule_live_snip.html")
+	options := japaneseFilterOptions{
+		Sides: []japaneseTitleInfo{
+			{ID: 31, Name: "BanG Dream!", TitleNumber: "##BD##BDY##", Side: -1},
+		},
+	}
+	rules, err := parseJapaneseDeckRules(doc, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bandori := findGroup(t, rules.TitleDeckGroups, SideWeiss, "BanG Dream!")
+	assertContainsCode(t, bandori, "BD")
+
+	unrestricted := findFreeFloater(t, rules.FreeFloaters, "すべてのタイトルで使用可能")
+	findFreeFloaterCard(t, unrestricted, "カルチャージャパンのアイドル みらい")
+
+	restricted := findRestriction(t, rules.RestrictionsByGroup, "BanG Dream!", RestrictionTypeRestricted)
+	card := findRestrictionCard(t, restricted, "ミッシェルシール")
+	if !slices.Contains(card.CardNumbers, "BD/W54-021") {
+		t.Fatalf("unexpected restricted card numbers: %v", card.CardNumbers)
+	}
+	if len(restricted.Notes) == 0 {
+		t.Fatalf("expected special-condition note on BanG Dream! restricted rule")
+	}
+
+	limited := findRestriction(t, rules.RestrictionsByGroup, "BanG Dream!", RestrictionTypeLimited)
+	if limited.MaxCopies != 1 {
+		t.Fatalf("unexpected max copies: %d", limited.MaxCopies)
+	}
+	findRestrictionCard(t, limited, "キラキラを求めて 香澄")
+
+	choice := findRestriction(t, rules.RestrictionsByGroup, "BanG Dream!", RestrictionTypeChoiceRestriction)
+	if choice.ChooseOneOf != 3 {
+		t.Fatalf("unexpected choose-one-of: %d", choice.ChooseOneOf)
+	}
+	if len(choice.Cards) != 3 {
+		t.Fatalf("unexpected choice card count: %d", len(choice.Cards))
+	}
+
+	sao := findRestriction(t, rules.RestrictionsByGroup, "ソードアート・オンライン", RestrictionTypeRestricted)
+	findRestrictionCard(t, sao, "真っ直ぐな道 アリス")
+
+	dal := findRestriction(t, rules.RestrictionsByGroup, "デート・ア・ライブ", RestrictionTypeLimited)
+	if dal.MaxCopies != 2 {
+		t.Fatalf("unexpected DAL max copies: %d", dal.MaxCopies)
+	}
+}
+
+func TestJapaneseDeckRulesClientFetchesFilterOptionsForTitles(t *testing.T) {
+	client, err := NewClient(WithRespectRobots(false), WithMaxRetries(0))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	defer client.Close()
+
+	client.httpClient.Transport = clientRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case strings.Contains(r.URL.Path, "/rules/deck_rule"):
+			body, err := os.ReadFile("mockws/deck_rule_live_snip.html")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return newHTTPResponse(r, http.StatusOK, nil, string(body)), nil
+		case strings.HasSuffix(r.URL.Path, "/filter-options"):
+			return newHTTPResponse(r, http.StatusOK, nil, `{
+				"sides": [
+					{"id":31,"name":"BanG Dream!","title_number":"##BD##BDY##","side":-1,"del_flg":0}
+				],
+				"expansions": []
+			}`), nil
+		default:
+			t.Fatalf("unexpected request: %s", r.URL)
+			return nil, nil
+		}
+	})
+
+	rules, err := client.DeckRules(context.Background(), DeckRulesConfig{Language: Japanese})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bandori := findGroup(t, rules.TitleDeckGroups, SideWeiss, "BanG Dream!")
+	assertContainsCode(t, bandori, "BDY")
+	if len(rules.RestrictionsByGroup["BanG Dream!"]) == 0 {
+		t.Fatal("expected accordion restrictions to parse from live-style HTML")
+	}
+}
+
+func findGroupOptional(groups []TitleDeckGroup, side Side, name string) (TitleDeckGroup, bool) {
+	for _, group := range groups {
+		if group.Side == side && group.matchesName(name) {
+			return group, true
+		}
+	}
+	return TitleDeckGroup{}, false
 }
