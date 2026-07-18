@@ -1194,6 +1194,202 @@ func TestExtractDataEvent_en(t *testing.T) {
 	}
 }
 
+// The English site sometimes labels a card as Event or Climax while still listing soul icons.
+// Soul should reflect the markup, not the stated card type.
+func TestExtractData_soulFromMarkupWhenCardTypeNotCharacter_en(t *testing.T) {
+	t.Run("event_with_soul_icons", func(t *testing.T) {
+		html := `
+<div class="p-cards__detail-wrapper">
+	<div class="p-cards__detail-wrapper-inner">
+		<div class="image"><img src="/wp/wp-content/images/cardimages/X/EVTEST.png" alt="Mislabeled Event" decoding="async">
+		</div>
+		<div class="p-cards__detail-textarea">
+		<p class="number">XX/W99-E01</p>
+		<p class="ttl u-mt-14 u-mt-16-sp">Mislabeled Event</p>
+		<div class="p-cards__detail-type u-mt-22 u-mt-40-sp">
+			<dl>
+			<dt>Expansion</dt>
+			<dd>[TEST] Expansion</dd>
+			</dl>
+			<dl>
+			<dt>Traits</dt>
+			<dd></dd>
+			</dl>
+			<dl>
+			<dt>Card Type</dt>
+			<dd>Event</dd>
+			</dl>
+			<dl>
+			<dt>Rarity</dt>
+			<dd>C</dd>
+			</dl>
+			<dl>
+			<dt>Side</dt>
+			<dd>
+								<img src="/cardlist/partimages/w.gif" alt="" decoding="async">
+								</dd>
+			</dl>
+			<dl>
+			<dt>Color</dt>
+			<dd><img src="/wp/wp-content/images/partimages/yellow.gif"></dd>
+			</dl>
+		</div>
+		<div class="p-cards__detail-status u-mt-22 u-mt-40-sp">
+			<dl>
+			<dt>Level</dt>
+			<dd>0</dd>
+			</dl>
+			<dl>
+			<dt>Cost</dt>
+			<dd>0</dd>
+			</dl>
+			<dl>
+			<dt>Power</dt>
+			<dd>-</dd>
+			</dl>
+			<dl>
+			<dt>Trigger</dt>
+			<dd>－</dd>
+			</dl>
+			<dl>
+			<dt>Soul</dt>
+			<dd><img src="/wp/wp-content/images/partimages/soul.gif"><img src="/wp/wp-content/images/partimages/soul.gif"></dd>
+			</dl>
+		</div>
+		<div class="p-cards__detail u-mt-22 u-mt-40-sp">
+			<p>Effect text.</p>
+		</div>
+		</div>
+	</div>
+</div>
+`
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+		if err != nil {
+			t.Fatal(err)
+		}
+		card := extractData(siteConfigs[English], doc.Clone())
+		if card.Type != CardTypeEvent {
+			t.Fatalf("Type: got %q want EV", card.Type)
+		}
+		if !equalIntPtr(card.Soul, intPtr(2)) {
+			t.Fatalf("Soul: got %v want 2", card.Soul)
+		}
+	})
+	t.Run("climax_with_soul_icons", func(t *testing.T) {
+		html := `
+<div class="p-cards__detail-wrapper">
+	<div class="p-cards__detail-wrapper-inner">
+		<div class="image"><img src="/wp/wp-content/images/cardimages/X/CXTEST.png" alt="Mislabeled CX" decoding="async">
+		</div>
+		<div class="p-cards__detail-textarea">
+		<p class="number">XX/W99-099</p>
+		<p class="ttl u-mt-14 u-mt-16-sp">Mislabeled CX</p>
+		<div class="p-cards__detail-type u-mt-22 u-mt-40-sp">
+			<dl>
+			<dt>Expansion</dt>
+			<dd>[TEST] Expansion</dd>
+			</dl>
+			<dl>
+			<dt>Traits</dt>
+			<dd></dd>
+			</dl>
+			<dl>
+			<dt>Card Type</dt>
+			<dd>Climax</dd>
+			</dl>
+			<dl>
+			<dt>Rarity</dt>
+			<dd>CC</dd>
+			</dl>
+			<dl>
+			<dt>Side</dt>
+			<dd>
+								<img src="/cardlist/partimages/w.gif" alt="" decoding="async">
+								</dd>
+			</dl>
+			<dl>
+			<dt>Color</dt>
+			<dd><img src="/wp/wp-content/images/partimages/yellow.gif"></dd>
+			</dl>
+		</div>
+		<div class="p-cards__detail-status u-mt-22 u-mt-40-sp">
+			<dl>
+			<dt>Level</dt>
+			<dd>-</dd>
+			</dl>
+			<dl>
+			<dt>Cost</dt>
+			<dd>-</dd>
+			</dl>
+			<dl>
+			<dt>Power</dt>
+			<dd>-</dd>
+			</dl>
+			<dl>
+			<dt>Trigger</dt>
+			<dd><img src="/wp/wp-content/images/partimages/soul.gif"></dd>
+			</dl>
+			<dl>
+			<dt>Soul</dt>
+			<dd><img src="/wp/wp-content/images/partimages/soul.gif"></dd>
+			</dl>
+		</div>
+		<div class="p-cards__detail u-mt-22 u-mt-40-sp">
+			<p>Climax effect.</p>
+		</div>
+		</div>
+	</div>
+</div>
+`
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+		if err != nil {
+			t.Fatal(err)
+		}
+		card := extractData(siteConfigs[English], doc.Clone())
+		if card.Type != CardTypeClimax {
+			t.Fatalf("Type: got %q want CX", card.Type)
+		}
+		if !equalIntPtr(card.Soul, intPtr(1)) {
+			t.Fatalf("Soul: got %v want 1", card.Soul)
+		}
+	})
+}
+
+func TestExtractData_soulFromMarkupWhenCardTypeNotCharacter_jp(t *testing.T) {
+	html := `
+	<th><a href="/cardlist/?cardno=XX/W99-001&amp;l"><img src="https://s3-ap-northeast-1.amazonaws.com/static.ws-tcg.com/wordpress/wp-content/cardimages/x/x_test/x_test_001.gif" alt="イベントなのにソウル"></a></th>
+	<td>
+	<h4><a href="/cardlist/?cardno=XX/W99-001&amp;l"><span class="highlight_target">
+	イベントなのにソウル</span>(<span class="highlight_target">XX/W99-001</span>)</a> -「テスト」Vol.1<br></h4>
+	<span class="unit">
+	サイド：<img src="https://s3-ap-northeast-1.amazonaws.com/static.ws-tcg.com/wordpress/wp-content/cardimages/_partimages/w.gif"></span>
+	<span class="unit">種類：イベント</span>
+	<span class="unit">レベル：0</span><br>
+	<span class="unit">色：<img src="https://s3-ap-northeast-1.amazonaws.com/static.ws-tcg.com/wordpress/wp-content/cardimages/_partimages/yellow.gif"></span>
+	<span class="unit">パワー：-</span>
+	<span class="unit">ソウル：<img src="https://s3-ap-northeast-1.amazonaws.com/static.ws-tcg.com/wordpress/wp-content/cardimages/_partimages/soul.gif"></span>
+	<span class="unit">コスト：0</span><br>
+	<span class="unit">レアリティ：C</span>
+	<span class="unit">トリガー：－</span>
+	<span class="unit">特徴：<span class="highlight_target">-・-</span></span><br>
+	<span class="unit">フレーバー：-</span><br>
+	<br>
+	<span class="highlight_target">テスト</span>
+	</td>
+	`
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := extractData(siteConfigs[Japanese], doc.Clone())
+	if card.Type != CardTypeEvent {
+		t.Fatalf("Type: got %q want EV", card.Type)
+	}
+	if !equalIntPtr(card.Soul, intPtr(1)) {
+		t.Fatalf("Soul: got %v want 1", card.Soul)
+	}
+}
+
 func TestExtractDataCX_en(t *testing.T) {
 	climax := `
 <div class="p-cards__detail-wrapper">
