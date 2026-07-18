@@ -95,6 +95,8 @@ type Card struct {
 	// Power indicates the card's battle strength. Only valid for Character cards.
 	Power *int `json:"power,omitempty"`
 	// Soul indicates how many soul points the card has. Only valid for Character cards.
+	// Note: The official site sometimes notes characters as non-characters and vice-versa,
+	// so soul may be non-zero on stated non-characters that might legitimately be characters.
 	Soul *int `json:"soul,omitempty"`
 	// Text describing the card's abilities.
 	Text []string `json:"text"`
@@ -288,7 +290,9 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 			}
 			info["sides"] = strings.Join(sidesToStrings(sides), " ")
 		case "Soul":
-			info["soul"] = strconv.Itoa(dd.Children().Length())
+			if n := dd.Children().Length(); n > 0 {
+				info["soul"] = strconv.Itoa(n)
+			}
 		case "Traits":
 			info["specialAttribute"] = ddText
 		case "Trigger":
@@ -345,9 +349,13 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		card.Traits = strings.Split(info["specialAttribute"], "・")
 	}
 	card.Triggers = parseTriggerFields(info["trigger"])
-	if card.Type == CardTypeCharacter {
-		card.Soul = parseNumericStat(info["soul"])
+	card.Soul = parseNumericStat(info["soul"])
+	if card.Type == CardTypeCharacter && card.Soul == nil {
+		// All characters should have a soul value, so if it's not set (or set to -), set it to 0.
+		zero := 0
+		card.Soul = &zero
 	}
+
 	applyExpansionMetadata(&card, extractExpansionMetadata(config, mainHTML))
 	return card
 }
@@ -434,7 +442,9 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 			infos["sides"] = strings.Join(sidesToStrings(sides), " ")
 			// Soul
 		case strings.HasPrefix(txt, "ソウル："):
-			infos["soul"] = strconv.Itoa(s.Children().Length())
+			if n := s.Children().Length(); n > 0 {
+				infos["soul"] = strconv.Itoa(n)
+			}
 			// Trigger
 		case strings.HasPrefix(txt, "トリガー："):
 			triggers, failures := parseTriggers(s, rawCardNumber)
@@ -488,9 +498,8 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 		card.Traits = strings.Split(infos["specialAttribute"], "・")
 	}
 	card.Triggers = parseTriggerFields(infos["trigger"])
-	if card.Type == CardTypeCharacter {
-		card.Soul = parseNumericStat(infos["soul"])
-	}
+	card.Soul = parseNumericStat(infos["soul"])
+
 	applyExpansionMetadata(&card, extractExpansionMetadata(config, mainHTML))
 	return card
 }
