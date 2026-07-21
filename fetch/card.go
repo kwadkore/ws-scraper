@@ -216,31 +216,32 @@ func parseSides(sideNode *goquery.Selection) []Side {
 }
 
 // extractData extract data to card
-func extractData(config siteConfig, mainHTML *goquery.Selection) Card {
+func extractData(config siteConfig, mainHTML *goquery.Selection, logger *slog.Logger) Card {
+	log := loggerOrDefault(logger)
 	switch config.languageCode {
 	case language.English:
-		return extractDataEn(config, mainHTML)
+		return extractDataEn(config, mainHTML, log)
 	case language.Japanese:
-		return extractDataJp(config, mainHTML)
+		return extractDataJp(config, mainHTML, log)
 	default:
-		slog.Error(fmt.Sprintf("Unsupported site: %q", config.languageCode))
+		log.Error(fmt.Sprintf("Unsupported site: %q", config.languageCode))
 		return Card{}
 	}
 }
 
-func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
+func extractDataEn(config siteConfig, mainHTML *goquery.Selection, log *slog.Logger) Card {
 	txtArea := mainHTML.Find(".p-cards__detail-textarea").Last()
 	cardNumber := txtArea.Find(".number").First().Last().Text()
 	defer func() {
 		if err := recover(); err != nil {
-			slog.With("cardnumber", cardNumber).Error(fmt.Sprintf("Panic during card extraction=%v", err))
+			log.With("cardnumber", cardNumber).Error(fmt.Sprintf("Panic during card extraction=%v", err))
 		}
 	}()
 
 	cardNumber = sanitizeCardNumber(cardNumber)
-	slog.Debug(fmt.Sprintf("Start card: %s", cardNumber))
+	log.Debug(fmt.Sprintf("Start card: %s", cardNumber))
 
-	setID, release, releasePackID, cardID := parseCardNumber(cardNumber)
+	setID, release, releasePackID, cardID := parseCardNumber(cardNumber, log)
 
 	cardName := txtArea.Find(".ttl").First().Text()
 	imageCardURL, _ := mainHTML.Find("div.image img").Attr("src")
@@ -270,7 +271,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 				colorName := strings.TrimSuffix(strings.TrimPrefix(ddText, "[["), "]]")
 				info["color"] = strings.ToUpper(strings.Split(colorName, ".")[0])
 			} else {
-				slog.With("cardnumber", cardNumber).Error("Failed to get color", "ddText", ddText)
+				log.With("cardnumber", cardNumber).Error("Failed to get color", "ddText", ddText)
 			}
 		case "Cost":
 			info["cost"] = ddText
@@ -285,7 +286,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		case "Side":
 			sides := parseSides(dd)
 			if len(sides) == 0 {
-				slog.With("cardnumber", cardNumber).Error("Failed to get side")
+				log.With("cardnumber", cardNumber).Error("Failed to get side")
 				return
 			}
 			info["sides"] = strings.Join(sidesToStrings(sides), " ")
@@ -296,13 +297,13 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 		case "Traits":
 			info["specialAttribute"] = ddText
 		case "Trigger":
-			triggers, failures := parseTriggers(dd, cardNumber)
+			triggers, failures := parseTriggers(dd, cardNumber, log)
 			if len(triggers) != 0 {
 				info["trigger"] = strings.Join(triggersToStrings(triggers), " ")
 			}
 			cardFailures = append(cardFailures, failures...)
 		default:
-			slog.With("cardnumber", cardNumber).Error(fmt.Sprintf("Unknown detail: %v", dt))
+			log.With("cardnumber", cardNumber).Error(fmt.Sprintf("Unknown detail: %v", dt))
 		}
 	})
 
@@ -314,7 +315,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 
 	ability, err := extractAbilities(mainHTML.Find(".p-cards__detail p").Last())
 	if err != nil {
-		slog.With("cardnumber", cardNumber).Error(fmt.Sprintf("Failed to get ability node: %v", err))
+		log.With("cardnumber", cardNumber).Error(fmt.Sprintf("Failed to get ability node: %v", err))
 	}
 
 	card := Card{
@@ -342,7 +343,7 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 	if fullURL, err := joinPath(config.baseURL, imageCardURL); err == nil {
 		card.ImageURL = fullURL.String()
 	} else {
-		slog.With("cardnumber", cardNumber).Error(fmt.Sprintf("Couldn't form full image URL: %v", err))
+		log.With("cardnumber", cardNumber).Error(fmt.Sprintf("Couldn't form full image URL: %v", err))
 		card.ImageURL = imageCardURL
 	}
 	if info["specialAttribute"] != "" {
@@ -360,25 +361,25 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection) Card {
 	return card
 }
 
-func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
+func extractDataJp(config siteConfig, mainHTML *goquery.Selection, log *slog.Logger) Card {
 	rawCardNumber := mainHTML.Find("h4 span").Last().Text()
 	defer func() {
 		if err := recover(); err != nil {
-			slog.With("cardnumber", rawCardNumber).Error(fmt.Sprintf("Panic during card extraction=%v", err))
+			log.With("cardnumber", rawCardNumber).Error(fmt.Sprintf("Panic during card extraction=%v", err))
 		}
 	}()
 
 	cardNumber := sanitizeCardNumber(rawCardNumber)
-	slog.Debug(fmt.Sprintf("Start card: %s", rawCardNumber))
+	log.Debug(fmt.Sprintf("Start card: %s", rawCardNumber))
 
-	setID, release, releasePackID, cardID := parseCardNumber(cardNumber)
+	setID, release, releasePackID, cardID := parseCardNumber(cardNumber, log)
 
 	expansionName := strings.TrimSpace(strings.Split(mainHTML.Find("h4").Text(), ") -")[1])
 	imageCardURL, _ := mainHTML.Find("a img").Attr("src")
 
 	ability, err := extractAbilities(mainHTML.Find("span").Last())
 	if err != nil {
-		slog.With("cardnumber", rawCardNumber).Error(fmt.Sprintf("Failed to get ability node: %v", err))
+		log.With("cardnumber", rawCardNumber).Error(fmt.Sprintf("Failed to get ability node: %v", err))
 	}
 
 	infos := make(map[string]string)
@@ -447,7 +448,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 			}
 			// Trigger
 		case strings.HasPrefix(txt, "トリガー："):
-			triggers, failures := parseTriggers(s, rawCardNumber)
+			triggers, failures := parseTriggers(s, rawCardNumber, log)
 			if len(triggers) != 0 {
 				infos["trigger"] = strings.Join(triggersToStrings(triggers), " ")
 			}
@@ -464,7 +465,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 				infos["specialAttribute"] = strings.TrimSpace(res.String())
 			}
 		default:
-			slog.With("cardnumber", rawCardNumber).Error(fmt.Sprintf("Unknown detail: %q", txt))
+			log.With("cardnumber", rawCardNumber).Error(fmt.Sprintf("Unknown detail: %q", txt))
 		}
 	})
 
@@ -491,7 +492,7 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection) Card {
 	if fullURL, err := joinPath(config.baseURL, imageCardURL); err == nil {
 		card.ImageURL = fullURL.String()
 	} else {
-		slog.With("cardnumber", rawCardNumber).Error(fmt.Sprintf("Couldn't form full image URL: %v", err))
+		log.With("cardnumber", rawCardNumber).Error(fmt.Sprintf("Couldn't form full image URL: %v", err))
 		card.ImageURL = imageCardURL
 	}
 	if infos["specialAttribute"] != "" {
@@ -554,7 +555,7 @@ func triggersToStrings(triggers []Trigger) []string {
 	return out
 }
 
-func parseTriggers(node *goquery.Selection, cardNumber string) ([]Trigger, []string) {
+func parseTriggers(node *goquery.Selection, cardNumber string, log *slog.Logger) ([]Trigger, []string) {
 	if node == nil {
 		return nil, nil
 	}
@@ -572,7 +573,7 @@ func parseTriggers(node *goquery.Selection, cardNumber string) ([]Trigger, []str
 		trigger, ok := triggersMap[triggerName]
 		if !ok {
 			failure := fmt.Sprintf("unknown trigger icon: %s", triggerName)
-			slog.With("cardnumber", cardNumber, "trigger", triggerName).Warn("Non-fatal trigger parse failure")
+			log.With("cardnumber", cardNumber, "trigger", triggerName).Warn("Non-fatal trigger parse failure")
 			failures = append(failures, failure)
 			return
 		}
@@ -646,7 +647,8 @@ func sanitizeCardNumber(cn string) string {
 	return cn
 }
 
-func parseCardNumber(cn string) (setID, release, releasePackID, id string) {
+func parseCardNumber(cn string, log *slog.Logger) (setID, release, releasePackID, id string) {
+	log = loggerOrDefault(log)
 	if matches := standardCardSuffixRE.FindStringSubmatch(cn); matches != nil {
 		setID = matches[1]
 		release = matches[2]
@@ -674,7 +676,7 @@ func parseCardNumber(cn string) (setID, release, releasePackID, id string) {
 		}
 		return
 	} else {
-		slog.With("cardnumber", cn).Error(fmt.Sprintf("Can't get set info from: %s", cn))
+		log.With("cardnumber", cn).Error(fmt.Sprintf("Can't get set info from: %s", cn))
 	}
 	return
 }

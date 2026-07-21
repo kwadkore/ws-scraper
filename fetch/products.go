@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log/slog"
 	"path"
 	"regexp"
 	"strings"
@@ -124,13 +123,13 @@ func (c *Client) Products(ctx context.Context, page string) ([]ProductInfo, erro
 			}
 		}
 
-		slog.Info(fmt.Sprintf("Extract: %v", productDetail))
+		c.log().Info(fmt.Sprintf("Extract: %v", productDetail))
 		productDoc, err := c.getDocument(ctx, productDetail, ProductsURL+page)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
-			slog.Error("Error fetching product detail", "url", productDetail, "error", err)
+			c.log().Error("Error fetching product detail", "url", productDetail, "error", err)
 			return
 		}
 
@@ -139,7 +138,7 @@ func (c *Client) Products(ctx context.Context, page string) ([]ProductInfo, erro
 			if firstErr == nil {
 				firstErr = err
 			}
-			slog.Error("Error getting product info", "url", productDetail, "error", err)
+			c.log().Error("Error getting product info", "url", productDetail, "error", err)
 			return
 		}
 		productList = append(productList, productInfo)

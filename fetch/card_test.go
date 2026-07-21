@@ -37,7 +37,7 @@ func TestCardFromJapaneseAPIItem(t *testing.T) {
 		Side:        "-1",
 	}
 
-	card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, "D.C. D.C.II")
+	card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, "D.C. D.C.II", nil)
 	want := Card{
 		CardNumber:    "DC/W01-002",
 		SetID:         "DC",
@@ -78,7 +78,7 @@ func TestCardFromJapaneseAPIItemMultiSideClimax(t *testing.T) {
 		Side:        "-3",
 	}
 
-	card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, "電撃文庫")
+	card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, "電撃文庫", nil)
 	if !equalSlice(card.Sides, []Side{SideWeiss, SideSchwarz}) {
 		t.Fatalf("unexpected sides: %v", card.Sides)
 	}
@@ -244,7 +244,7 @@ func TestExtractData_jp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[Japanese], doc.Clone())
+	card := extractData(siteConfigs[Japanese], doc.Clone(), nil)
 	if card.Name != "“私達、参上っ！”上原ひまり" {
 		t.Errorf("got %v: expected “私達、参上っ！”上原ひまり", card.Name)
 	}
@@ -322,7 +322,7 @@ func TestExtractData_jp_purple(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[Japanese], doc.Clone())
+	card := extractData(siteConfigs[Japanese], doc.Clone(), nil)
 	expectedCard := Card{
 		Name:          "むらさきパプリス",
 		SetID:         "PY",
@@ -405,7 +405,7 @@ func TestExtractData_jp_multiSideCard(t *testing.T) {
 		},
 	}
 
-	card := extractData(siteConfigs[Japanese], doc.Clone())
+	card := extractData(siteConfigs[Japanese], doc.Clone(), nil)
 	assertCardEquals(t, card, expectedCard)
 }
 
@@ -439,7 +439,7 @@ func TestExtractDataEvent_jp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[Japanese], doc.Clone())
+	card := extractData(siteConfigs[Japanese], doc.Clone(), nil)
 	if card.Name != "ミッシェルからの伝言" {
 		t.Errorf("got %v: expected ミッシェルからの伝言", card.Name)
 	}
@@ -495,7 +495,7 @@ func TestExtractDataCX_jp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[Japanese], doc.Clone())
+	card := extractData(siteConfigs[Japanese], doc.Clone(), nil)
 
 	expectedCard := Card{
 		Name:          "キラキラのお日様",
@@ -601,7 +601,7 @@ func TestExtractData_en(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[English], doc.Clone())
+	card := extractData(siteConfigs[English], doc.Clone(), nil)
 	expectedCard := Card{
 		Name:          "EGOISTIC, Sakura",
 		ExpansionName: "PR Card 【Schwarz Side】",
@@ -749,7 +749,7 @@ func TestExtractData_en_multiIconAbility(t *testing.T) {
 		},
 	}
 
-	card := extractData(siteConfigs[English], doc.Clone())
+	card := extractData(siteConfigs[English], doc.Clone(), nil)
 	assertCardEquals(t, card, expectedCard)
 }
 
@@ -792,7 +792,7 @@ func TestExtractData_en_newTriggers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[English], doc.Clone())
+	card := extractData(siteConfigs[English], doc.Clone(), nil)
 	expectedTriggers := []Trigger{TriggerDiscovery, TriggerChance}
 	if !equalSlice(card.Triggers, expectedTriggers) {
 		t.Errorf("got %v: expected %v", card.Triggers, expectedTriggers)
@@ -846,7 +846,7 @@ func TestExtractData_en_comebackTrigger(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[English], doc.Clone())
+	card := extractData(siteConfigs[English], doc.Clone(), nil)
 	expectedTriggers := []Trigger{TriggerComeback}
 	if !equalSlice(card.Triggers, expectedTriggers) {
 		t.Errorf("got %v: expected %v", card.Triggers, expectedTriggers)
@@ -889,7 +889,7 @@ func TestExtractData_jp_newTriggers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[Japanese], doc.Clone())
+	card := extractData(siteConfigs[Japanese], doc.Clone(), nil)
 	expectedTriggers := []Trigger{TriggerDiscovery, TriggerChance}
 	if !equalSlice(card.Triggers, expectedTriggers) {
 		t.Errorf("got %v: expected %v", card.Triggers, expectedTriggers)
@@ -1008,7 +1008,7 @@ func TestExtractData_en_multiSideCard(t *testing.T) {
 		},
 	}
 
-	card := extractData(siteConfigs[English], doc.Clone())
+	card := extractData(siteConfigs[English], doc.Clone(), nil)
 	assertCardEquals(t, card, expectedCard)
 }
 
@@ -1051,7 +1051,7 @@ func TestExtractData_en_triggerParseFailureIsNonFatal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[English], doc.Clone())
+	card := extractData(siteConfigs[English], doc.Clone(), nil)
 	expectedCard := Card{
 		CardNumber:    "TST/W01-003",
 		SetID:         "TST",
@@ -1158,7 +1158,7 @@ func TestExtractDataEvent_en(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[English], doc.Clone())
+	card := extractData(siteConfigs[English], doc.Clone(), nil)
 
 	if card.Type != "EV" {
 		t.Errorf("got %v: expected EV", card.Type)
@@ -1267,7 +1267,7 @@ func TestExtractData_soulFromMarkupWhenCardTypeNotCharacter_en(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		card := extractData(siteConfigs[English], doc.Clone())
+		card := extractData(siteConfigs[English], doc.Clone(), nil)
 		if card.Type != CardTypeEvent {
 			t.Fatalf("Type: got %q want EV", card.Type)
 		}
@@ -1345,7 +1345,7 @@ func TestExtractData_soulFromMarkupWhenCardTypeNotCharacter_en(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		card := extractData(siteConfigs[English], doc.Clone())
+		card := extractData(siteConfigs[English], doc.Clone(), nil)
 		if card.Type != CardTypeClimax {
 			t.Fatalf("Type: got %q want CX", card.Type)
 		}
@@ -1381,7 +1381,7 @@ func TestExtractData_soulFromMarkupWhenCardTypeNotCharacter_jp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	card := extractData(siteConfigs[Japanese], doc.Clone())
+	card := extractData(siteConfigs[Japanese], doc.Clone(), nil)
 	if card.Type != CardTypeEvent {
 		t.Fatalf("Type: got %q want EV", card.Type)
 	}
@@ -1466,7 +1466,7 @@ func TestExtractDataCX_en(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[English], doc.Clone())
+	card := extractData(siteConfigs[English], doc.Clone(), nil)
 
 	if card.Type != "CX" {
 		t.Errorf("got %v: expected CX", card.Type)
@@ -2103,7 +2103,7 @@ func TestExtractData_en_specialCardNumbers(t *testing.T) {
 			continue
 		}
 
-		card := extractData(siteConfigs[tc.lang], doc.Clone())
+		card := extractData(siteConfigs[tc.lang], doc.Clone(), nil)
 		assertCardEqualsWithTitle(t, tc.name, card, tc.expectedCard)
 	}
 }
@@ -2219,7 +2219,7 @@ func TestExtractData_en_improperColor(t *testing.T) {
 			continue
 		}
 
-		card := extractData(siteConfigs[tc.lang], doc.Clone())
+		card := extractData(siteConfigs[tc.lang], doc.Clone(), nil)
 		assertCardEqualsWithTitle(t, tc.name, card, tc.expectedCard)
 	}
 }

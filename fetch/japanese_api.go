@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -168,7 +169,7 @@ func (c *Client) cardsStreamJapanese(ctx context.Context, cfg Config, urlValues 
 
 			for _, item := range page.Items {
 				expansion := expansions[item.Expansion]
-				card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, expansion.Name)
+				card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, expansion.Name, c.log())
 				if isJapanesePromoCard(card) {
 					applyExpansionMetadata(&card, c.resolveExpansionMetadata(ctx, Japanese, card))
 				} else {
@@ -272,9 +273,9 @@ func recentJapaneseExpansionValues(options japaneseFilterOptions) []url.Values {
 	return out
 }
 
-func cardFromJapaneseAPIItem(config siteConfig, item japaneseCardItem, expansionName string) Card {
+func cardFromJapaneseAPIItem(config siteConfig, item japaneseCardItem, expansionName string, logger *slog.Logger) Card {
 	cardNumber := sanitizeCardNumber(item.CardNumber)
-	setID, release, releasePackID, cardID := parseCardNumber(cardNumber)
+	setID, release, releasePackID, cardID := parseCardNumber(cardNumber, logger)
 	if item.ExpansionRel != nil && item.ExpansionRel.Name != "" {
 		expansionName = item.ExpansionRel.Name
 	}

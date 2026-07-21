@@ -113,7 +113,7 @@ func TestExtractDataEnSetsProductExpansionMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	card := extractData(siteConfigs[English], doc.Clone())
+	card := extractData(siteConfigs[English], doc.Clone(), nil)
 	if card.ExpansionName != "Avatar: The Last Airbender" {
 		t.Fatalf("unexpected ExpansionName: %q", card.ExpansionName)
 	}

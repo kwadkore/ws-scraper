@@ -271,6 +271,10 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+func (c *Client) log() *slog.Logger {
+	return loggerOrDefault(c.logger)
+}
+
 func newRequestLimiter(rps float64, burst int) *requestLimiter {
 	if burst <= 0 {
 		burst = defaultBurst

@@ -61,7 +61,7 @@ type siteConfig struct {
 	cardListURL                string
 	cardSearchURL              string
 	languageCode               language.Tag
-	lastPageFunc               func(doc *goquery.Document) int
+	lastPageFunc               func(doc *goquery.Document, logger *slog.Logger) int
 	pageScanParseFunc          func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (pageDone bool)
 	recentReleaseDistinguisher string
 	recentRelaseExpansionFunc  func(page *goquery.Selection) *url.Values
@@ -79,13 +79,13 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 		cardListURL:   "https://en.ws-tcg.com/cardlist/",
 		cardSearchURL: "https://en.ws-tcg.com/cardlist/searchresults/",
 		languageCode:  language.English,
-		lastPageFunc: func(doc *goquery.Document) int {
+		lastPageFunc: func(doc *goquery.Document, logger *slog.Logger) int {
 			numCardsS := doc.Find(".c-search__results-item span").First().Text()
 			numCardsS = strings.TrimSpace(numCardsS)
 			numCardsS = strings.ReplaceAll(numCardsS, ",", "")
 			numCards, err := strconv.Atoi(numCardsS)
 			if err != nil {
-				slog.Error(fmt.Sprintf("Couldn't get num cards: %v", err))
+				loggerOrDefault(logger).Error(fmt.Sprintf("Couldn't get num cards: %v", err))
 				return 1
 			}
 			// As of 2024-9-3, there are 15 cards per "page".
@@ -93,26 +93,27 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 			return (numCards-1)/15 + 1
 		},
 		pageScanParseFunc: func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (pageDone bool) {
+			log := task.client.log()
 			doc, err := goquery.NewDocumentFromReader(resp.Body)
 			if err != nil {
-				slog.With("url", resp.Request.URL).Error(fmt.Sprintf("Couldn't parse result page: %v", err))
+				log.With("url", resp.Request.URL).Error(fmt.Sprintf("Couldn't parse result page: %v", err))
 				return false
 			}
 			resultList := doc.Find(".p_cards__results-box ul li")
 
 			if resultList.Length() == 0 && resp.StatusCode == http.StatusOK {
-				slog.With("url", resp.Request.URL).Warn("No cards on response page")
+				log.With("url", resp.Request.URL).Warn("No cards on response page")
 			} else {
-				slog.With("url", resp.Request.URL).Debug("Found cards!")
+				log.With("url", resp.Request.URL).Debug("Found cards!")
 				resultList.Each(func(i int, s *goquery.Selection) {
 					subPath, exists := s.Find("a").First().Attr("href")
 					if !exists {
-						slog.With("url", resp.Request.URL).Error(fmt.Sprintf("Error getting sub path: %v", err))
+						log.With("url", resp.Request.URL).Error(fmt.Sprintf("Error getting sub path: %v", err))
 						return
 					}
 					fp, err := joinPath(task.siteConfig.baseURL, subPath)
 					if err != nil {
-						slog.With("url", resp.Request.URL).Error(fmt.Sprintf("Error getting full path: %v", err))
+						log.With("url", resp.Request.URL).Error(fmt.Sprintf("Error getting full path: %v", err))
 						return
 					}
 					fullPath := fp.String()
@@ -123,16 +124,16 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 						Referer: task.siteConfig.cardListURL,
 					})
 					if err != nil {
-						slog.With("url", fullPath).Error("Failed to get detailed page", "error", err)
+						log.With("url", fullPath).Error("Failed to get detailed page", "error", err)
 						return
 					}
 
 					doc, err := goquery.NewDocumentFromReader(bytes.NewReader(detailedPageResp.Body))
 					if err != nil {
-						slog.With("url", fullPath).Error(fmt.Sprintf("Couldn't parse detailed page: %v", err))
+						log.With("url", fullPath).Error(fmt.Sprintf("Couldn't parse detailed page: %v", err))
 						return
 					}
-					slog.With("url", fullPath).Debug("Successfully parsed detailed page")
+					log.With("url", fullPath).Debug("Successfully parsed detailed page")
 					cardDetails := doc.Selection
 					wgCardSel.Add(1)
 					cardSelCh <- cardDetails
@@ -168,7 +169,7 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 		cardListURL:   "https://ws-tcg.com/cardlist/",
 		cardSearchURL: "https://ws-tcg.com/cardlist/search",
 		languageCode:  language.Japanese,
-		lastPageFunc: func(doc *goquery.Document) int {
+		lastPageFunc: func(doc *goquery.Document, logger *slog.Logger) int {
 			all := doc.Find(".pager .next")
 
 			last, _ := strconv.Atoi(all.Prev().First().Text())
@@ -179,18 +180,19 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 			return last
 		},
 		pageScanParseFunc: func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (pageDone bool) {
+			log := task.client.log()
 			doc, err := goquery.NewDocumentFromReader(resp.Body)
 			if err != nil {
 				task.pageURLCh <- resp.Request.URL.String()
-				slog.With("url", resp.Request.URL).Error(fmt.Sprintf("Couldn't parse result page: %v", err))
+				log.With("url", resp.Request.URL).Error(fmt.Sprintf("Couldn't parse result page: %v", err))
 				return false
 			}
 			resultTable := doc.Find(".search-result-table tr")
 
 			if resultTable.Length() == 0 && resp.StatusCode == http.StatusOK {
-				slog.With("url", resp.Request.URL).Warn("No cards on response page")
+				log.With("url", resp.Request.URL).Warn("No cards on response page")
 			} else {
-				slog.With("url", resp.Request.URL).Debug("Found cards!")
+				log.With("url", resp.Request.URL).Debug("Found cards!")
 				resultTable.Each(func(i int, s *goquery.Selection) {
 					wgCardSel.Add(1)
 					cardSelCh <- s
@@ -241,7 +243,7 @@ type scrapeTask struct {
 }
 
 func (s *scrapeTask) getLastPage() (int, error) {
-	slog.Info(fmt.Sprintf("Getting last page of %q with %v", s.siteConfig.cardSearchURL, s.urlValues))
+	s.client.log().Info(fmt.Sprintf("Getting last page of %q with %v", s.siteConfig.cardSearchURL, s.urlValues))
 	respData, err := s.client.request(s.ctx, requestOptions{
 		Method:  http.MethodPost,
 		URL:     fmt.Sprintf("%v?page=%d", s.siteConfig.cardSearchURL, 1),
@@ -259,9 +261,9 @@ func (s *scrapeTask) getLastPage() (int, error) {
 		return 0, fmt.Errorf("error parsing last page: %v", err)
 	}
 
-	last := s.siteConfig.lastPageFunc(doc)
+	last := s.siteConfig.lastPageFunc(doc, s.client.log())
 
-	slog.With("url", resp.Request.URL).Info(fmt.Sprintf("Last page is %d for %v", last, s.urlValues))
+	s.client.log().With("url", resp.Request.URL).Info(fmt.Sprintf("Last page is %d for %v", last, s.urlValues))
 	s.lastPage = last
 	return last, nil
 }
@@ -291,8 +293,9 @@ func joinPath(baseURL, subPath string) (*url.URL, error) {
 }
 
 func pageFetchWorker(id int, task *scrapeTask) {
+	log := task.client.log()
 	for link := range task.pageURLCh {
-		slog.Debug(fmt.Sprintf("ID %d: fetching page %q with params %v", id, link, task.urlValues))
+		log.Debug(fmt.Sprintf("ID %d: fetching page %q with params %v", id, link, task.urlValues))
 		respData, err := task.client.request(task.ctx, requestOptions{
 			Method:  http.MethodPost,
 			URL:     link,
@@ -300,13 +303,13 @@ func pageFetchWorker(id int, task *scrapeTask) {
 			Form:    task.urlValues,
 		})
 		if err != nil {
-			slog.With("url", link).Error("Failed page fetch", "error", err)
+			log.With("url", link).Error("Failed page fetch", "error", err)
 			task.wgPageScan.Done()
 			continue
 		}
 		task.pageRespCh <- responseToHTTPResponse(respData)
 	}
-	slog.Info(fmt.Sprintf("Page fetch worker %d done", id))
+	log.Info(fmt.Sprintf("Page fetch worker %d done", id))
 }
 
 func pageScanWorker(
@@ -315,15 +318,16 @@ func pageScanWorker(
 	wgCardSel *sync.WaitGroup,
 	cardSelCh chan<- *goquery.Selection,
 ) {
+	log := task.client.log()
 	for resp := range task.pageRespCh {
-		slog.Debug(fmt.Sprintf("Start scanning page: %v", resp.Request.URL))
+		log.Debug(fmt.Sprintf("Start scanning page: %v", resp.Request.URL))
 		if task.siteConfig.pageScanParseFunc(task, wgCardSel, cardSelCh, resp) {
 			task.wgPageScan.Done()
 		}
 		resp.Body.Close()
-		slog.Debug(fmt.Sprintf("Finish scanning page: %v", resp.Request.URL))
+		log.Debug(fmt.Sprintf("Finish scanning page: %v", resp.Request.URL))
 	}
-	slog.Info(fmt.Sprintf("Page scan worker %d done", id))
+	log.Info(fmt.Sprintf("Page scan worker %d done", id))
 }
 
 func getImageWithClient(ctx context.Context, client *Client, url string) (image.Image, error) {
@@ -343,12 +347,12 @@ func getImageWithClient(ctx context.Context, client *Client, url string) (image.
 
 func extractWorker(ctx context.Context, client *Client, siteCfg siteConfig, getImages bool, wgCardSel *sync.WaitGroup, cardSelChan <-chan *goquery.Selection, cardCh chan<- Card) {
 	for s := range cardSelChan {
-		c := extractData(siteCfg, s)
+		c := extractData(siteCfg, s, client.log())
 		applyExpansionMetadata(&c, client.resolveExpansionMetadata(ctx, SiteLanguage(siteCfg.languageCode), c))
 
 		if getImages {
 			if img, err := getImageWithClient(ctx, client, c.ImageURL); err != nil {
-				slog.Error(fmt.Sprintf("Problem getting image for %s: %v", c.CardNumber, err))
+				client.log().Error(fmt.Sprintf("Problem getting image for %s: %v", c.CardNumber, err))
 			} else {
 				c.Image = img
 			}
@@ -417,14 +421,14 @@ type Config struct {
 
 func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card) error {
 	var siteCfg siteConfig
-	if c, ok := siteConfigs[cfg.Language]; !ok {
+	if sc, ok := siteConfigs[cfg.Language]; !ok {
 		return fmt.Errorf("unsupported language: %v", cfg.Language)
 	} else {
-		siteCfg = c
-		slog.Info(fmt.Sprintf("Fetching %v cards", cfg.Language))
+		siteCfg = sc
+		c.log().Info(fmt.Sprintf("Fetching %v cards", cfg.Language))
 	}
 
-	slog.Info("Streaming cards", "config", cfg)
+	c.log().Info("Streaming cards", "config", cfg)
 
 	urlValues := siteCfg.baseURLValues()
 	if cfg.ExpansionNumber != 0 {
@@ -484,7 +488,7 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 		for _, recent := range getTasksForRecentReleases(siteCfg, doc) {
 			copyTask := defaultScrapeTask
 			copyTask.urlValues = recent.urlValues
-			slog.Debug(fmt.Sprintf("default scrape task=%v, recent=%v", defaultScrapeTask, recent))
+			c.log().Debug(fmt.Sprintf("default scrape task=%v, recent=%v", defaultScrapeTask, recent))
 			scrapeTasks = append(scrapeTasks, &copyTask)
 		}
 	} else {
@@ -504,7 +508,7 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 		st.wgPageScan.Add(lastPage)
 	}
 
-	slog.Debug(fmt.Sprintf("Number of loop %v", loopNum))
+	c.log().Debug(fmt.Sprintf("Number of loop %v", loopNum))
 
 	var wgScanner, wgCardSel sync.WaitGroup
 	cardSelCh := make(chan *goquery.Selection, maxLocalWorker)
@@ -586,11 +590,11 @@ func (c *Client) Boosters(ctx context.Context, cfg Config) (map[string]Booster, 
 // specified language in the Config.
 func (c *Client) ExpansionList(ctx context.Context, cfg Config) (map[int]string, error) {
 	var siteCfg siteConfig
-	if c, ok := siteConfigs[cfg.Language]; !ok {
+	if sc, ok := siteConfigs[cfg.Language]; !ok {
 		return nil, fmt.Errorf("unsupported language: %v", cfg.Language)
 	} else {
-		siteCfg = c
-		slog.Info(fmt.Sprintf("Fetching %v expansion list", cfg.Language))
+		siteCfg = sc
+		c.log().Info(fmt.Sprintf("Fetching %v expansion list", cfg.Language))
 	}
 
 	if cfg.Language == Japanese {
@@ -635,11 +639,11 @@ func (c *Client) ExpansionList(ctx context.Context, cfg Config) (map[int]string,
 		val = strings.TrimSpace(val)
 		if !exists || val == "" {
 			// This is probably the "All" option
-			slog.Warn(fmt.Sprintf("Option %q had no value", s.Text()))
+			c.log().Warn(fmt.Sprintf("Option %q had no value", s.Text()))
 			return
 		}
 		if v, err := strconv.Atoi(val); err != nil {
-			slog.Error(fmt.Sprintf("Error parsing expansion value: %v", err))
+			c.log().Error(fmt.Sprintf("Error parsing expansion value: %v", err))
 		} else {
 			eMap[v] = s.Text()
 		}
