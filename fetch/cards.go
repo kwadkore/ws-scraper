@@ -476,27 +476,14 @@ type Config struct {
 	TitleNumber int
 }
 
-// CardsStream sends every card matching cfg to cardCh and closes cardCh when
-// it returns, whether or not it succeeded.
-//
-// If some results pages or card pages could not be fetched, the cards that
-// were fetched are still sent and the returned error wraps ErrIncomplete, so
-// callers can tell a partial result from a complete one.
-func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card) error {
-	// Deferring the close is only safe because nothing returns after the
-	// extract workers (which send on cardCh) are started; every early return
-	// below happens before any worker exists. Keep it that way.
-	defer close(cardCh)
-
-	var siteCfg siteConfig
-	if sc, ok := siteConfigs[cfg.Language]; !ok {
-		return fmt.Errorf("unsupported language: %v", cfg.Language)
-	} else {
-		siteCfg = sc
-		c.log().Info(fmt.Sprintf("Fetching %v cards", cfg.Language))
+// searchValues translates cfg into the site config and search form values
+// that select the cards it describes. It is the single source of truth for
+// that translation so a count and a scrape of the same Config agree.
+func searchValues(cfg Config) (siteConfig, url.Values, error) {
+	siteCfg, ok := siteConfigs[cfg.Language]
+	if !ok {
+		return siteConfig{}, nil, fmt.Errorf("unsupported language: %v", cfg.Language)
 	}
-
-	c.log().Info("Streaming cards", "config", cfg)
 
 	urlValues := siteCfg.baseURLValues()
 	if cfg.ExpansionNumber != 0 {
@@ -511,7 +498,7 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 	}
 	if cfg.TitleNumber != 0 {
 		if !siteCfg.supportTitleNumber {
-			return fmt.Errorf("can't use title number on %v site", cfg.Language)
+			return siteConfig{}, nil, fmt.Errorf("can't use title number on %v site", cfg.Language)
 		}
 		urlValues.Add("title", strconv.Itoa(cfg.TitleNumber))
 	}
@@ -529,6 +516,59 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 			urlValues.Add("title_number", fmt.Sprintf("##%s##", strings.Join(cfg.SetCode, "##")))
 		}
 	}
+	return siteCfg, urlValues, nil
+}
+
+// CardCount returns the number of cards the site lists for cfg, honouring
+// Language, ExpansionNumber, TitleNumber, SetCode and GetAllRarities exactly
+// as CardsStream does, so a count and a scrape of the same Config agree.
+// It issues one request.
+//
+// GetRecent is rejected because it describes several searches, not one.
+// PageStart, Reverse and GetImages only affect how a scrape proceeds and are
+// ignored.
+//
+// Like every other request, the count goes through the client's response
+// cache if one was configured with WithCache, so a cached client reports
+// the cached count until the TTL expires. A consumer polling for changes
+// should use a client without a cache.
+func (c *Client) CardCount(ctx context.Context, cfg Config) (int, error) {
+	if cfg.GetRecent {
+		return 0, fmt.Errorf("can't count cards with GetRecent: it selects several searches")
+	}
+	siteCfg, urlValues, err := searchValues(cfg)
+	if err != nil {
+		return 0, err
+	}
+
+	if cfg.Language == Japanese {
+		page, err := c.fetchJapaneseCardSearch(ctx, urlValues, 1)
+		if err != nil {
+			return 0, err
+		}
+		return page.Total, nil
+	}
+	return c.fetchResultCount(ctx, siteCfg, urlValues)
+}
+
+// CardsStream sends every card matching cfg to cardCh and closes cardCh when
+// it returns, whether or not it succeeded.
+//
+// If some results pages or card pages could not be fetched, the cards that
+// were fetched are still sent and the returned error wraps ErrIncomplete, so
+// callers can tell a partial result from a complete one.
+func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card) error {
+	// Deferring the close is only safe because nothing returns after the
+	// extract workers (which send on cardCh) are started; every early return
+	// below happens before any worker exists. Keep it that way.
+	defer close(cardCh)
+
+	siteCfg, urlValues, err := searchValues(cfg)
+	if err != nil {
+		return err
+	}
+	c.log().Info(fmt.Sprintf("Fetching %v cards", cfg.Language))
+	c.log().Info("Streaming cards", "config", cfg)
 
 	if cfg.Language == Japanese {
 		return c.cardsStreamJapanese(ctx, cfg, urlValues, cardCh)

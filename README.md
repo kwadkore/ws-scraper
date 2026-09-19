@@ -42,6 +42,7 @@ Main APIs exposed by the `fetch` package:
 - `(*fetch.Client).Cards(ctx, cfg) ([]fetch.Card, error)`
 - `(*fetch.Client).CardsStream(ctx, cfg, ch) error`
 - `(*fetch.Client).Boosters(ctx, cfg) (map[string]fetch.Booster, error)`
+- `(*fetch.Client).CardCount(ctx, cfg) (int, error)`
 - `(*fetch.Client).ExpansionList(ctx, cfg) (map[int]string, error)`
 - `(*fetch.Client).Products(ctx, page) ([]fetch.ProductInfo, error)`
 - `(*fetch.Client).DeckRules(ctx, cfg) (fetch.DeckRules, error)`

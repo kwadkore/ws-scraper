@@ -6,14 +6,17 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/text/language"
 )
 
 // func TestGetLastPage(t *testing.T) {
@@ -638,5 +641,138 @@ func TestCardsJapaneseFailedFirstPageIsNotIncomplete(t *testing.T) {
 	}
 	if len(cards) != 0 {
 		t.Fatalf("expected no cards, got %d", len(cards))
+	}
+}
+
+func TestSearchValues(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+		want url.Values
+	}{
+		{
+			name: "en expansion all rarities",
+			cfg:  Config{Language: English, ExpansionNumber: 288, GetAllRarities: true},
+			want: url.Values{"view": {"text"}, "expansion_name": {"288"}, "parallel": {"0"}},
+		},
+		{
+			name: "en title and set codes base rarity",
+			cfg:  Config{Language: English, TitleNumber: 159, SetCode: []string{"BAV/W129", "BD/WE49"}},
+			want: url.Values{"view": {"text"}, "title": {"159"}, "parallel": {"1"}, "keyword_or": {"BAV/W129 BD/WE49"}, "keyword_type[]": {"no"}},
+		},
+		{
+			name: "ja expansion and set codes",
+			cfg:  Config{Language: Japanese, ExpansionNumber: 100, SetCode: []string{"DD/WE17"}, GetAllRarities: true},
+			want: url.Values{"cmd": {"search"}, "show_page_count": {"100"}, "show_small": {"0"}, "expansion": {"100"}, "parallel": {"0"}, "title_number": {"##DD/WE17##"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, got, err := searchValues(tt.cfg)
+			if err != nil {
+				t.Fatalf("searchValues failed: %v", err)
+			}
+			if got.Encode() != tt.want.Encode() {
+				t.Fatalf("searchValues = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	if _, _, err := searchValues(Config{Language: Japanese, TitleNumber: 1}); err == nil {
+		t.Fatal("expected TitleNumber to be rejected for Japanese")
+	}
+	if _, _, err := searchValues(Config{Language: SiteLanguage(language.German)}); err == nil {
+		t.Fatal("expected an unsupported language to be rejected")
+	}
+}
+
+// newCountingClient returns a fast client whose transport records every
+// request and answers each with respond.
+func newCountingClient(t *testing.T, respond func(r *http.Request) *http.Response) (*Client, *atomic.Int32) {
+	t.Helper()
+	client, err := NewClient(WithRespectRobots(false), WithMaxRetries(0), WithRequestsPerSecond(1000), WithBurst(100))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(client.Close)
+
+	var requests atomic.Int32
+	client.httpClient.Transport = clientRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requests.Add(1)
+		return respond(r), nil
+	})
+	return client, &requests
+}
+
+func TestCardCountEnglish(t *testing.T) {
+	client, requests := newCountingClient(t, func(r *http.Request) *http.Response {
+		if r.Method != http.MethodPost || r.URL.String() != "https://en.ws-tcg.com/cardlist/searchresults/?page=1" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+		}
+		if got := r.PostForm.Encode(); got != "expansion_name=288&parallel=0&view=text" {
+			t.Errorf("form = %q", got)
+		}
+		return newHTTPResponse(r, http.StatusOK, nil, englishListingPage(1226))
+	})
+
+	got, err := client.CardCount(context.Background(), Config{Language: English, ExpansionNumber: 288, GetAllRarities: true})
+	if err != nil {
+		t.Fatalf("CardCount failed: %v", err)
+	}
+	if got != 1226 {
+		t.Fatalf("CardCount = %d, want 1226", got)
+	}
+	if n := requests.Load(); n != 1 {
+		t.Fatalf("CardCount made %d requests, want 1", n)
+	}
+}
+
+func TestCardCountEnglishUnparsableIsAnError(t *testing.T) {
+	client, _ := newCountingClient(t, func(r *http.Request) *http.Response {
+		return newHTTPResponse(r, http.StatusOK, nil, `<html><body>no results box</body></html>`)
+	})
+
+	if _, err := client.CardCount(context.Background(), Config{Language: English, ExpansionNumber: 288}); err == nil {
+		t.Fatal("CardCount should fail when the count can't be parsed")
+	}
+}
+
+func TestCardCountJapanese(t *testing.T) {
+	client, requests := newCountingClient(t, func(r *http.Request) *http.Response {
+		if r.Method != http.MethodGet || r.URL.Path != "/manage/CardListUser/searchJson" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+		}
+		q := r.URL.Query()
+		if q.Get("expansion") != "100" || q.Get("parallel") != "0" || q.Get("page") != "1" {
+			t.Errorf("query = %v", q)
+		}
+		return newHTTPResponse(r, http.StatusOK, nil, japaneseSearchPage(45, 1, "DD/WE17-01", "DD/WE17-02"))
+	})
+
+	got, err := client.CardCount(context.Background(), Config{Language: Japanese, ExpansionNumber: 100, GetAllRarities: true})
+	if err != nil {
+		t.Fatalf("CardCount failed: %v", err)
+	}
+	if got != 45 {
+		t.Fatalf("CardCount = %d, want 45", got)
+	}
+	if n := requests.Load(); n != 1 {
+		t.Fatalf("CardCount made %d requests, want 1", n)
+	}
+}
+
+func TestCardCountRejectsGetRecent(t *testing.T) {
+	client, requests := newCountingClient(t, func(r *http.Request) *http.Response {
+		return newHTTPResponse(r, http.StatusOK, nil, "")
+	})
+
+	if _, err := client.CardCount(context.Background(), Config{Language: English, GetRecent: true}); err == nil {
+		t.Fatal("CardCount should reject GetRecent")
+	}
+	if n := requests.Load(); n != 0 {
+		t.Fatalf("CardCount made %d requests, want 0", n)
 	}
 }
