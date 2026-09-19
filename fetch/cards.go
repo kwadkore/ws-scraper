@@ -19,7 +19,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"html"
 	"image"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -94,27 +96,22 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 		},
 		pageScanParseFunc: func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (pageDone bool) {
 			log := task.client.log()
-			doc, err := goquery.NewDocumentFromReader(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				log.With("url", resp.Request.URL).Error(fmt.Sprintf("Couldn't parse result page: %v", err))
+				log.With("url", resp.Request.URL).Error(fmt.Sprintf("Couldn't read result page: %v", err))
 				return false
 			}
-			resultList := doc.Find(".p_cards__results-box ul li")
+			subPaths := englishListingCardLinks(body)
 
-			if resultList.Length() == 0 && resp.StatusCode == http.StatusOK {
+			if len(subPaths) == 0 && resp.StatusCode == http.StatusOK {
 				log.With("url", resp.Request.URL).Warn("No cards on response page")
 			} else {
 				log.With("url", resp.Request.URL).Debug("Found cards!")
-				resultList.Each(func(i int, s *goquery.Selection) {
-					subPath, exists := s.Find("a").First().Attr("href")
-					if !exists {
-						log.With("url", resp.Request.URL).Error(fmt.Sprintf("Error getting sub path: %v", err))
-						return
-					}
+				for _, subPath := range subPaths {
 					fp, err := joinPath(task.siteConfig.baseURL, subPath)
 					if err != nil {
 						log.With("url", resp.Request.URL).Error(fmt.Sprintf("Error getting full path: %v", err))
-						return
+						continue
 					}
 					fullPath := fp.String()
 
@@ -125,19 +122,19 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 					})
 					if err != nil {
 						log.With("url", fullPath).Error("Failed to get detailed page", "error", err)
-						return
+						continue
 					}
 
 					doc, err := goquery.NewDocumentFromReader(bytes.NewReader(detailedPageResp.Body))
 					if err != nil {
 						log.With("url", fullPath).Error(fmt.Sprintf("Couldn't parse detailed page: %v", err))
-						return
+						continue
 					}
 					log.With("url", fullPath).Debug("Successfully parsed detailed page")
 					cardDetails := doc.Selection
 					wgCardSel.Add(1)
 					cardSelCh <- cardDetails
-				})
+				}
 			}
 
 			return true
@@ -222,6 +219,30 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 		},
 		supportTitleNumber: false,
 	},
+}
+
+// englishCardLinkRE matches the detail-page links on an English search results page.
+var englishCardLinkRE = regexp.MustCompile(`href="(/cardlist/\?cardno=[^"]+)"`)
+
+// englishListingCardLinks returns the detail-page paths on an English search
+// results page, in page order and without duplicates.
+//
+// The links are pulled from the raw HTML rather than the parsed DOM on purpose:
+// the site occasionally emits an unclosed attribute in a card's rules text
+// (e.g. <img src='/.../REST] ...), and the HTML5 parser then swallows the
+// following <li> as attribute garbage, so the next card is never seen.
+func englishListingCardLinks(body []byte) []string {
+	var links []string
+	seen := make(map[string]bool)
+	for _, m := range englishCardLinkRE.FindAllSubmatch(body, -1) {
+		link := html.UnescapeString(string(m[1]))
+		if seen[link] {
+			continue
+		}
+		seen[link] = true
+		links = append(links, link)
+	}
+	return links
 }
 
 type Booster struct {
