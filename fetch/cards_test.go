@@ -36,6 +36,22 @@ import (
 // 	}
 // }
 
+// fastTestOptions builds a client that talks to a stub transport as quickly
+// as the client allows: no robots lookup, no retries, an effectively
+// unlimited rate limiter, and enough network slots for the scrape workers
+// to overlap. The per-request jitter in Client.request is not configurable,
+// so each request still costs up to 150ms; overlapping them is what keeps
+// the multi-request tests fast.
+func fastTestOptions() []Option {
+	return []Option{
+		WithRespectRobots(false),
+		WithMaxRetries(0),
+		WithRequestsPerSecond(1000),
+		WithBurst(100),
+		WithNetworkConcurrency(10),
+	}
+}
+
 func TestRecentSwitch_en(t *testing.T) {
 	expectedExpansion := []string{
 		"228",
@@ -67,7 +83,7 @@ func TestRecentSwitch_en(t *testing.T) {
 }
 
 func TestCardsJapaneseUsesSearchJSONPagination(t *testing.T) {
-	client, err := NewClient(WithRespectRobots(false), WithMaxRetries(0))
+	client, err := NewClient(fastTestOptions()...)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -266,7 +282,7 @@ func TestCardsEnglishSurvivesUnclosedImgOnListingPage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client, err := NewClient(WithRespectRobots(false), WithMaxRetries(0), WithRequestsPerSecond(1000), WithBurst(100))
+	client, err := NewClient(fastTestOptions()...)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -361,7 +377,7 @@ func (b *syncBuffer) String() string {
 // and fail the test without killing the worker goroutine that asked.
 func newEnglishStubClient(t *testing.T, logs *syncBuffer, listings map[string]string, detail func(cardNo string) (int, string)) *Client {
 	t.Helper()
-	opts := []Option{WithRespectRobots(false), WithMaxRetries(0), WithRequestsPerSecond(1000), WithBurst(100)}
+	opts := fastTestOptions()
 	if logs != nil {
 		opts = append(opts, WithLogger(slog.New(slog.NewTextHandler(logs, nil))))
 	}
@@ -567,7 +583,7 @@ func japaneseSearchPage(total, page int, cardNos ...string) string {
 // product lookups are stubbed so no card resolution needs the network.
 func newJapaneseStubClient(t *testing.T, pages map[string]string) *Client {
 	t.Helper()
-	client, err := NewClient(WithRespectRobots(false), WithMaxRetries(0), WithRequestsPerSecond(1000), WithBurst(100))
+	client, err := NewClient(fastTestOptions()...)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -690,7 +706,7 @@ func TestSearchValues(t *testing.T) {
 // request and answers each with respond.
 func newCountingClient(t *testing.T, respond func(r *http.Request) *http.Response) (*Client, *atomic.Int32) {
 	t.Helper()
-	client, err := NewClient(WithRespectRobots(false), WithMaxRetries(0), WithRequestsPerSecond(1000), WithBurst(100))
+	client, err := NewClient(fastTestOptions()...)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
