@@ -18,11 +18,11 @@ package fetch
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"image"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -57,14 +57,26 @@ var (
 	Japanese SiteLanguage = SiteLanguage(language.Japanese)
 )
 
+// ErrIncomplete is returned (wrapped) by CardsStream and friends when the
+// cards that were emitted are not a complete snapshot of the site: a results
+// page or card page could not be fetched, or fewer cards were found than the
+// site's own result count says there should be.
+var ErrIncomplete = errors.New("scrape incomplete")
+
 type siteConfig struct {
-	baseURL                    string
-	baseURLValues              func() url.Values
-	cardListURL                string
-	cardSearchURL              string
-	languageCode               language.Tag
-	lastPageFunc               func(doc *goquery.Document, logger *slog.Logger) int
-	pageScanParseFunc          func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (pageDone bool)
+	baseURL       string
+	baseURLValues func() url.Values
+	cardListURL   string
+	cardSearchURL string
+	// cardsPerPage is how many cards a full search results page holds.
+	cardsPerPage int
+	languageCode language.Tag
+	// resultCountFunc extracts the total result count the site reports on a
+	// search results page.
+	resultCountFunc func(doc *goquery.Document) (int, error)
+	// pageScanParseFunc queues the cards on one search results page and
+	// returns how many cards it found there.
+	pageScanParseFunc          func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (found int)
 	recentReleaseDistinguisher string
 	recentRelaseExpansionFunc  func(page *goquery.Selection) *url.Values
 	supportTitleNumber         bool
@@ -80,64 +92,58 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 		},
 		cardListURL:   "https://en.ws-tcg.com/cardlist/",
 		cardSearchURL: "https://en.ws-tcg.com/cardlist/searchresults/",
-		languageCode:  language.English,
-		lastPageFunc: func(doc *goquery.Document, logger *slog.Logger) int {
+		// As of 2024-9-3, there are 15 cards per "page".
+		cardsPerPage: 15,
+		languageCode: language.English,
+		resultCountFunc: func(doc *goquery.Document) (int, error) {
 			numCardsS := doc.Find(".c-search__results-item span").First().Text()
 			numCardsS = strings.TrimSpace(numCardsS)
 			numCardsS = strings.ReplaceAll(numCardsS, ",", "")
 			numCards, err := strconv.Atoi(numCardsS)
 			if err != nil {
-				loggerOrDefault(logger).Error(fmt.Sprintf("Couldn't get num cards: %v", err))
-				return 1
+				return 0, fmt.Errorf("couldn't parse result count %q: %w", numCardsS, err)
 			}
-			// As of 2024-9-3, there are 15 cards per "page".
-			// TODO: figure out a better way to get the total number of pages
-			return (numCards-1)/15 + 1
+			return numCards, nil
 		},
-		pageScanParseFunc: func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (pageDone bool) {
+		pageScanParseFunc: func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (found int) {
 			log := task.client.log()
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				log.With("url", resp.Request.URL).Error(fmt.Sprintf("Couldn't read result page: %v", err))
-				return false
+				task.fail(fmt.Errorf("read results page %s: %w", resp.Request.URL, err))
+				return 0
 			}
 			subPaths := englishListingCardLinks(body)
 
-			if len(subPaths) == 0 && resp.StatusCode == http.StatusOK {
-				log.With("url", resp.Request.URL).Warn("No cards on response page")
-			} else {
-				log.With("url", resp.Request.URL).Debug("Found cards!")
-				for _, subPath := range subPaths {
-					fp, err := joinPath(task.siteConfig.baseURL, subPath)
-					if err != nil {
-						log.With("url", resp.Request.URL).Error(fmt.Sprintf("Error getting full path: %v", err))
-						continue
-					}
-					fullPath := fp.String()
-
-					detailedPageResp, err := task.client.request(task.ctx, requestOptions{
-						Method:  http.MethodGet,
-						URL:     fullPath,
-						Referer: task.siteConfig.cardListURL,
-					})
-					if err != nil {
-						log.With("url", fullPath).Error("Failed to get detailed page", "error", err)
-						continue
-					}
-
-					doc, err := goquery.NewDocumentFromReader(bytes.NewReader(detailedPageResp.Body))
-					if err != nil {
-						log.With("url", fullPath).Error(fmt.Sprintf("Couldn't parse detailed page: %v", err))
-						continue
-					}
-					log.With("url", fullPath).Debug("Successfully parsed detailed page")
-					cardDetails := doc.Selection
-					wgCardSel.Add(1)
-					cardSelCh <- cardDetails
+			for _, subPath := range subPaths {
+				fp, err := joinPath(task.siteConfig.baseURL, subPath)
+				if err != nil {
+					task.fail(fmt.Errorf("resolve card link %q on %s: %w", subPath, resp.Request.URL, err))
+					continue
 				}
+				fullPath := fp.String()
+
+				detailedPageResp, err := task.client.request(task.ctx, requestOptions{
+					Method:  http.MethodGet,
+					URL:     fullPath,
+					Referer: task.siteConfig.cardListURL,
+				})
+				if err != nil {
+					task.fail(fmt.Errorf("fetch card page %s: %w", fullPath, err))
+					continue
+				}
+
+				doc, err := goquery.NewDocumentFromReader(bytes.NewReader(detailedPageResp.Body))
+				if err != nil {
+					task.fail(fmt.Errorf("parse card page %s: %w", fullPath, err))
+					continue
+				}
+				log.With("url", fullPath).Debug("Successfully parsed detailed page")
+				cardDetails := doc.Selection
+				wgCardSel.Add(1)
+				cardSelCh <- cardDetails
 			}
 
-			return true
+			return len(subPaths)
 		},
 		recentReleaseDistinguisher: "div.p-cards__latest-products ul.c-product__list a",
 		recentRelaseExpansionFunc: func(sel *goquery.Selection) *url.Values {
@@ -166,38 +172,8 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 		cardListURL:   "https://ws-tcg.com/cardlist/",
 		cardSearchURL: "https://ws-tcg.com/cardlist/search",
 		languageCode:  language.Japanese,
-		lastPageFunc: func(doc *goquery.Document, logger *slog.Logger) int {
-			all := doc.Find(".pager .next")
-
-			last, _ := strconv.Atoi(all.Prev().First().Text())
-			// default is 1, there no .pager .next if it's the only page
-			if last == 0 {
-				last = 1
-			}
-			return last
-		},
-		pageScanParseFunc: func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (pageDone bool) {
-			log := task.client.log()
-			doc, err := goquery.NewDocumentFromReader(resp.Body)
-			if err != nil {
-				task.pageURLCh <- resp.Request.URL.String()
-				log.With("url", resp.Request.URL).Error(fmt.Sprintf("Couldn't parse result page: %v", err))
-				return false
-			}
-			resultTable := doc.Find(".search-result-table tr")
-
-			if resultTable.Length() == 0 && resp.StatusCode == http.StatusOK {
-				log.With("url", resp.Request.URL).Warn("No cards on response page")
-			} else {
-				log.With("url", resp.Request.URL).Debug("Found cards!")
-				resultTable.Each(func(i int, s *goquery.Selection) {
-					wgCardSel.Add(1)
-					cardSelCh <- s
-				})
-			}
-
-			return true
-		},
+		// Japanese cards come from the JSON search API (see japanese_api.go),
+		// so there are no HTML results-page hooks here.
 		recentReleaseDistinguisher: "div.system > ul.expansion-list a[onclick]",
 		recentRelaseExpansionFunc: func(sel *goquery.Selection) *url.Values {
 			onclickAttr, exists := sel.Attr("onclick")
@@ -257,45 +233,105 @@ type scrapeTask struct {
 	pageRespCh chan *http.Response
 	siteConfig siteConfig
 	urlValues  url.Values
-	lastPage   int
-	wgPageScan *sync.WaitGroup
-	client     *Client
-	ctx        context.Context
+	// resultCount is the total number of results the site reports for urlValues.
+	resultCount int
+	lastPage    int
+	wgPageScan  *sync.WaitGroup
+	client      *Client
+	ctx         context.Context
+
+	mu sync.Mutex
+	// found is the number of cards discovered across all scanned results pages.
+	found int
+	// errs collects every page-level failure so the caller can tell a partial
+	// result from a complete one.
+	errs []error
 }
 
-func (s *scrapeTask) getLastPage() (int, error) {
-	s.client.log().Info(fmt.Sprintf("Getting last page of %q with %v", s.siteConfig.cardSearchURL, s.urlValues))
-	respData, err := s.client.request(s.ctx, requestOptions{
+// fail records a page-level failure. It is safe to call from any worker.
+func (s *scrapeTask) fail(err error) {
+	s.client.log().Error("Page-level scrape failure", "error", err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.errs = append(s.errs, err)
+}
+
+// expectedOnPage is how many cards a results page should hold given the
+// site's reported result count: a full page everywhere but the last.
+func (s *scrapeTask) expectedOnPage(page int) int {
+	if page < s.lastPage {
+		return s.siteConfig.cardsPerPage
+	}
+	return s.resultCount - (s.lastPage-1)*s.siteConfig.cardsPerPage
+}
+
+// recordPage tallies the cards found on one results page and warns when the
+// page came up short, which is what a silently dropped card looks like.
+func (s *scrapeTask) recordPage(pageURL *url.URL, found int) {
+	s.mu.Lock()
+	s.found += found
+	s.mu.Unlock()
+
+	page, err := strconv.Atoi(pageURL.Query().Get("page"))
+	if err != nil {
+		s.client.log().With("url", pageURL).Warn("Couldn't tell which results page this is", "error", err)
+		return
+	}
+	if expected := s.expectedOnPage(page); found != expected {
+		s.client.log().With("url", pageURL).Warn("Results page card count mismatch", "expected", expected, "found", found)
+	}
+}
+
+// fetchResultCount asks the site how many results urlValues matches and
+// derives the number of results pages from it.
+func (s *scrapeTask) fetchResultCount() error {
+	s.client.log().Info(fmt.Sprintf("Getting result count of %q with %v", s.siteConfig.cardSearchURL, s.urlValues))
+	count, err := s.client.fetchResultCount(s.ctx, s.siteConfig, s.urlValues)
+	if err != nil {
+		return err
+	}
+	s.resultCount = count
+	s.lastPage = (count-1)/s.siteConfig.cardsPerPage + 1
+	if s.lastPage < 1 {
+		s.lastPage = 1
+	}
+	s.client.log().Info(fmt.Sprintf("%d results over %d pages for %v", count, s.lastPage, s.urlValues))
+	return nil
+}
+
+// fetchResultCount issues one search request for urlValues and returns the
+// result count the site reports for it.
+func (c *Client) fetchResultCount(ctx context.Context, siteCfg siteConfig, urlValues url.Values) (int, error) {
+	respData, err := c.request(ctx, requestOptions{
 		Method:  http.MethodPost,
-		URL:     fmt.Sprintf("%v?page=%d", s.siteConfig.cardSearchURL, 1),
-		Referer: s.siteConfig.cardListURL,
-		Form:    s.urlValues,
+		URL:     fmt.Sprintf("%v?page=%d", siteCfg.cardSearchURL, 1),
+		Referer: siteCfg.cardListURL,
+		Form:    urlValues,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("error getting last page: %v", err)
+		return 0, fmt.Errorf("error getting result count: %w", err)
 	}
-	resp := responseToHTTPResponse(respData)
-	defer resp.Body.Close()
 
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(respData.Body))
 	if err != nil {
-		return 0, fmt.Errorf("error parsing last page: %v", err)
+		return 0, fmt.Errorf("error parsing result count page: %w", err)
 	}
 
-	last := s.siteConfig.lastPageFunc(doc, s.client.log())
-
-	s.client.log().With("url", resp.Request.URL).Info(fmt.Sprintf("Last page is %d for %v", last, s.urlValues))
-	s.lastPage = last
-	return last, nil
+	count, err := siteCfg.resultCountFunc(doc)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", respData.Request.URL, err)
+	}
+	return count, nil
 }
 
-func getTasksForRecentReleases(siteCfg siteConfig, doc *goquery.Document) []scrapeTask {
-	var tasks []scrapeTask
+// getTasksForRecentReleases returns the search form values for each of the
+// recent releases linked from the card list landing page.
+func getTasksForRecentReleases(siteCfg siteConfig, doc *goquery.Document) []url.Values {
+	var tasks []url.Values
 	// Find all <a> elements with onclick attributes within the <ul> element
 	doc.Find(siteCfg.recentReleaseDistinguisher).Each(func(i int, sel *goquery.Selection) {
 		if v := siteCfg.recentRelaseExpansionFunc(sel); v != nil {
-
-			tasks = append(tasks, scrapeTask{urlValues: *v})
+			tasks = append(tasks, *v)
 		}
 	})
 	return tasks
@@ -324,7 +360,7 @@ func pageFetchWorker(id int, task *scrapeTask) {
 			Form:    task.urlValues,
 		})
 		if err != nil {
-			log.With("url", link).Error("Failed page fetch", "error", err)
+			task.fail(fmt.Errorf("fetch results page %s: %w", link, err))
 			task.wgPageScan.Done()
 			continue
 		}
@@ -342,10 +378,10 @@ func pageScanWorker(
 	log := task.client.log()
 	for resp := range task.pageRespCh {
 		log.Debug(fmt.Sprintf("Start scanning page: %v", resp.Request.URL))
-		if task.siteConfig.pageScanParseFunc(task, wgCardSel, cardSelCh, resp) {
-			task.wgPageScan.Done()
-		}
+		found := task.siteConfig.pageScanParseFunc(task, wgCardSel, cardSelCh, resp)
 		resp.Body.Close()
+		task.recordPage(resp.Request.URL, found)
+		task.wgPageScan.Done()
 		log.Debug(fmt.Sprintf("Finish scanning page: %v", resp.Request.URL))
 	}
 	log.Info(fmt.Sprintf("Page scan worker %d done", id))
@@ -440,7 +476,18 @@ type Config struct {
 	TitleNumber int
 }
 
+// CardsStream sends every card matching cfg to cardCh and closes cardCh when
+// it returns, whether or not it succeeded.
+//
+// If some results pages or card pages could not be fetched, the cards that
+// were fetched are still sent and the returned error wraps ErrIncomplete, so
+// callers can tell a partial result from a complete one.
 func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card) error {
+	// Deferring the close is only safe because nothing returns after the
+	// extract workers (which send on cardCh) are started; every early return
+	// below happens before any worker exists. Keep it that way.
+	defer close(cardCh)
+
 	var siteCfg siteConfig
 	if sc, ok := siteConfigs[cfg.Language]; !ok {
 		return fmt.Errorf("unsupported language: %v", cfg.Language)
@@ -487,13 +534,15 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 		return c.cardsStreamJapanese(ctx, cfg, urlValues, cardCh)
 	}
 
-	var scrapeTasks []*scrapeTask
-	defaultScrapeTask := scrapeTask{
-		siteConfig: siteCfg,
-		urlValues:  urlValues,
-		client:     c,
-		ctx:        ctx,
+	newTask := func(values url.Values) *scrapeTask {
+		return &scrapeTask{
+			siteConfig: siteCfg,
+			urlValues:  values,
+			client:     c,
+			ctx:        ctx,
+		}
 	}
+	var scrapeTasks []*scrapeTask
 	if cfg.GetRecent {
 		resp, err := c.request(ctx, requestOptions{
 			Method: http.MethodGet,
@@ -507,26 +556,23 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 			return fmt.Errorf("error parsing recent: %v", err)
 		}
 		for _, recent := range getTasksForRecentReleases(siteCfg, doc) {
-			copyTask := defaultScrapeTask
-			copyTask.urlValues = recent.urlValues
-			c.log().Debug(fmt.Sprintf("default scrape task=%v, recent=%v", defaultScrapeTask, recent))
-			scrapeTasks = append(scrapeTasks, &copyTask)
+			c.log().Debug(fmt.Sprintf("recent scrape task=%v", recent))
+			scrapeTasks = append(scrapeTasks, newTask(recent))
 		}
 	} else {
-		scrapeTasks = append(scrapeTasks, &defaultScrapeTask)
+		scrapeTasks = append(scrapeTasks, newTask(urlValues))
 	}
 
 	loopNum := 0
 	for _, st := range scrapeTasks {
-		lastPage, err := st.getLastPage()
-		if err != nil {
+		if err := st.fetchResultCount(); err != nil {
 			return err
 		}
-		loopNum += lastPage
-		st.pageURLCh = make(chan string, lastPage)
+		loopNum += st.lastPage
+		st.pageURLCh = make(chan string, st.lastPage)
 		st.pageRespCh = make(chan *http.Response, maxScrapeWorker)
 		st.wgPageScan = &sync.WaitGroup{}
-		st.wgPageScan.Add(lastPage)
+		st.wgPageScan.Add(st.lastPage)
 	}
 
 	c.log().Debug(fmt.Sprintf("Number of loop %v", loopNum))
@@ -568,9 +614,31 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 	wgScanner.Wait()
 	wgCardSel.Wait()
 	close(cardSelCh)
-	close(cardCh)
 
-	return nil
+	var errs []error
+	for _, st := range scrapeTasks {
+		// A partial scrape (PageStart) can't be expected to match the site's count.
+		if cfg.PageStart <= 1 && st.found != st.resultCount {
+			st.fail(resultCountMismatch(st.resultCount, st.found, st.urlValues))
+		}
+		errs = append(errs, st.errs...)
+	}
+	return incompleteError(errs)
+}
+
+// resultCountMismatch describes a scrape that found a different number of
+// cards than the site's result count said it would.
+func resultCountMismatch(expected, found int, params url.Values) error {
+	return fmt.Errorf("site reports %d results but found %d for %v", expected, found, params)
+}
+
+// incompleteError wraps the collected page-level failures of a scrape in
+// ErrIncomplete, or returns nil if there were none.
+func incompleteError(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", ErrIncomplete, errors.Join(errs...))
 }
 
 func (c *Client) aggregate(ctx context.Context, cfg Config, r reducer) error {

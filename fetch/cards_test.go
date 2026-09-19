@@ -3,9 +3,13 @@ package fetch
 import (
 	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -52,7 +56,7 @@ func TestRecentSwitch_en(t *testing.T) {
 	}
 
 	for _, task := range recentTasks {
-		expansion := task.urlValues.Get("expansion")
+		expansion := task.Get("expansion")
 		if !slices.Contains(expectedExpansion, expansion) {
 			t.Errorf("Did not expect %q expansion", expansion)
 		}
@@ -314,5 +318,325 @@ func TestCardsEnglishSurvivesUnclosedImgOnListingPage(t *testing.T) {
 	slices.Sort(detailRequests)
 	if !slices.Equal(detailRequests, want) {
 		t.Fatalf("detail page requests = %v, want %v", detailRequests, want)
+	}
+}
+
+// englishListingPage builds a well-formed EN search results page reporting
+// count total results and linking to the given cards.
+func englishListingPage(count int, cardNos ...string) string {
+	var b strings.Builder
+	b.WriteString(`<html><body><div class="p_cards__results">
+<p class="c-search__results-item">Search Results<span>` + strconv.Itoa(count) + `</span>items.</p>
+<div class="p_cards__results-box"><ul>`)
+	for _, no := range cardNos {
+		b.WriteString(`<li><a href="/cardlist/?cardno=` + no + `&view=text"><p class="number">` + no + `</p></a></li>`)
+	}
+	b.WriteString(`</ul></div></div></body></html>`)
+	return b.String()
+}
+
+// syncBuffer is a bytes.Buffer that is safe to write from scrape workers.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// newEnglishStubClient returns a fast client whose transport serves listing
+// pages by page number and detail pages via detail. Unknown URLs get a 404
+// and fail the test without killing the worker goroutine that asked.
+func newEnglishStubClient(t *testing.T, logs *syncBuffer, listings map[string]string, detail func(cardNo string) (int, string)) *Client {
+	t.Helper()
+	opts := []Option{WithRespectRobots(false), WithMaxRetries(0), WithRequestsPerSecond(1000), WithBurst(100)}
+	if logs != nil {
+		opts = append(opts, WithLogger(slog.New(slog.NewTextHandler(logs, nil))))
+	}
+	client, err := NewClient(opts...)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(client.Close)
+
+	client.httpClient.Transport = clientRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/cardlist/searchresults/":
+			if body, ok := listings[r.URL.Query().Get("page")]; ok {
+				return newHTTPResponse(r, http.StatusOK, nil, body), nil
+			}
+			return newHTTPResponse(r, http.StatusInternalServerError, nil, ""), nil
+		case "/cardlist/":
+			status, body := detail(r.URL.Query().Get("cardno"))
+			return newHTTPResponse(r, status, nil, body), nil
+		case "/prcards/":
+			return newHTTPResponse(r, http.StatusOK, nil, "<html></html>"), nil
+		default:
+			t.Errorf("unexpected URL: %s", r.URL.String())
+			return newHTTPResponse(r, http.StatusNotFound, nil, ""), nil
+		}
+	})
+	return client
+}
+
+func okDetailPage(cardNo string) (int, string) {
+	return http.StatusOK, englishDetailPage(cardNo, "Card "+cardNo)
+}
+
+func cardNumbers(cards []Card) []string {
+	var nums []string
+	for _, c := range cards {
+		nums = append(nums, c.CardNumber)
+	}
+	slices.Sort(nums)
+	return nums
+}
+
+func TestScrapeTaskExpectedOnPage(t *testing.T) {
+	tests := []struct {
+		count    int
+		lastPage int
+		perPage  []int
+	}{
+		{count: 19, lastPage: 2, perPage: []int{15, 4}},
+		{count: 15, lastPage: 1, perPage: []int{15}},
+		{count: 30, lastPage: 2, perPage: []int{15, 15}},
+		{count: 0, lastPage: 1, perPage: []int{0}},
+	}
+	for _, tt := range tests {
+		task := &scrapeTask{siteConfig: siteConfigs[English], resultCount: tt.count}
+		task.lastPage = (tt.count-1)/task.siteConfig.cardsPerPage + 1
+		if task.lastPage < 1 {
+			task.lastPage = 1
+		}
+		if task.lastPage != tt.lastPage {
+			t.Errorf("count %d: lastPage = %d, want %d", tt.count, task.lastPage, tt.lastPage)
+			continue
+		}
+		for i, want := range tt.perPage {
+			if got := task.expectedOnPage(i + 1); got != want {
+				t.Errorf("count %d page %d: expectedOnPage = %d, want %d", tt.count, i+1, got, want)
+			}
+		}
+	}
+}
+
+func TestCardsEnglishFailedResultsPageIsAnError(t *testing.T) {
+	// 16 results = 2 pages; only page 1 is served.
+	listings := map[string]string{
+		"1": englishListingPage(16, "AB/W31-E001", "AB/W31-E002"),
+	}
+	client := newEnglishStubClient(t, nil, listings, okDetailPage)
+
+	cards, err := client.Cards(context.Background(), Config{Language: English, ExpansionNumber: 1})
+	if !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Cards err = %v, want ErrIncomplete", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "page=2") {
+		t.Fatalf("error should name the failed page, got: %v", err)
+	}
+	want := []string{"AB/W31-E001", "AB/W31-E002"}
+	if got := cardNumbers(cards); !slices.Equal(got, want) {
+		t.Fatalf("partial cards = %v, want %v", got, want)
+	}
+}
+
+func TestCardsEnglishFailedDetailPageIsAnError(t *testing.T) {
+	listings := map[string]string{
+		"1": englishListingPage(3, "AB/W31-E001", "AB/W31-E002", "AB/W31-E003"),
+	}
+	client := newEnglishStubClient(t, nil, listings, func(cardNo string) (int, string) {
+		if cardNo == "AB/W31-E002" {
+			return http.StatusInternalServerError, ""
+		}
+		return okDetailPage(cardNo)
+	})
+
+	cards, err := client.Cards(context.Background(), Config{Language: English, ExpansionNumber: 1})
+	if !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Cards err = %v, want ErrIncomplete", err)
+	}
+	if !strings.Contains(err.Error(), "AB/W31-E002") {
+		t.Fatalf("error should name the failed card, got: %v", err)
+	}
+	want := []string{"AB/W31-E001", "AB/W31-E003"}
+	if got := cardNumbers(cards); !slices.Equal(got, want) {
+		t.Fatalf("partial cards = %v, want %v", got, want)
+	}
+}
+
+func TestCardsEnglishUnparsableResultCountIsAnError(t *testing.T) {
+	listings := map[string]string{
+		"1": `<html><body><div class="p_cards__results-box"><ul></ul></div></body></html>`,
+	}
+	client := newEnglishStubClient(t, nil, listings, okDetailPage)
+
+	// Cards() would hang here if CardsStream returned without closing cardCh.
+	cards, err := client.Cards(context.Background(), Config{Language: English, ExpansionNumber: 1})
+	if err == nil {
+		t.Fatal("Cards should fail when the result count can't be parsed")
+	}
+	if len(cards) != 0 {
+		t.Fatalf("expected no cards, got %d", len(cards))
+	}
+}
+
+func TestCardsEnglishUnsupportedTitleNumberClosesChannel(t *testing.T) {
+	client := newEnglishStubClient(t, nil, nil, okDetailPage)
+
+	// Cards() would hang here if CardsStream returned without closing cardCh.
+	_, err := client.Cards(context.Background(), Config{Language: Japanese, TitleNumber: 1})
+	if err == nil {
+		t.Fatal("Cards should reject TitleNumber on the Japanese site")
+	}
+}
+
+func TestCardsEnglishShortPageWarnsAndIsIncomplete(t *testing.T) {
+	// The site says 19 results (2 pages) but page 1 only links 3 cards and
+	// page 2 only 1, so both pages and the final total come up short.
+	listings := map[string]string{
+		"1": englishListingPage(19, "AB/W31-E001", "AB/W31-E002", "AB/W31-E003"),
+		"2": englishListingPage(19, "AB/W31-E016"),
+	}
+	var logs syncBuffer
+	client := newEnglishStubClient(t, &logs, listings, okDetailPage)
+
+	cards, err := client.Cards(context.Background(), Config{Language: English, ExpansionNumber: 1})
+	if !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Cards err = %v, want ErrIncomplete", err)
+	}
+	if !strings.Contains(err.Error(), "site reports 19 results but found 4") {
+		t.Fatalf("error should describe the count mismatch, got: %v", err)
+	}
+	if len(cards) != 4 {
+		t.Fatalf("expected 4 cards, got %d", len(cards))
+	}
+
+	got := logs.String()
+	for _, want := range []string{
+		`msg="Results page card count mismatch" url="https://en.ws-tcg.com/cardlist/searchresults/?page=1" expected=15 found=3`,
+		`msg="Results page card count mismatch" url="https://en.ws-tcg.com/cardlist/searchresults/?page=2" expected=4 found=1`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing log line %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestCardsEnglishPageStartSkipsCountCheck(t *testing.T) {
+	listings := map[string]string{
+		"1": englishListingPage(16, "AB/W31-E001"),
+		"2": englishListingPage(16, "AB/W31-E016"),
+	}
+	client := newEnglishStubClient(t, nil, listings, okDetailPage)
+
+	cards, err := client.Cards(context.Background(), Config{Language: English, ExpansionNumber: 1, PageStart: 2})
+	if err != nil {
+		t.Fatalf("Cards failed: %v", err)
+	}
+	if got := cardNumbers(cards); !slices.Equal(got, []string{"AB/W31-E016"}) {
+		t.Fatalf("cards = %v, want only page 2", got)
+	}
+}
+
+// japaneseSearchPage builds a searchJson response for one page of a
+// two-card-per-page result set.
+func japaneseSearchPage(total, page int, cardNos ...string) string {
+	var items []string
+	for i, no := range cardNos {
+		items = append(items, `{"id":`+strconv.Itoa(page*10+i)+`,"card_number":"`+no+`","card_name":"n","card_kind":"2","color":"[[yellow.gif]]","level":"0","cost":"0","power":"500","soul":"[[soul.gif]]","card_trigger":"-","text":"t","picture":"x.png","expansion":1,"rare":"RR","side":"-1"}`)
+	}
+	pageCount := (total + 1) / 2
+	return `{"items":[` + strings.Join(items, ",") + `],"total":` + strconv.Itoa(total) + `,"page":` + strconv.Itoa(page) + `,"limit":2,"page_count":` + strconv.Itoa(pageCount) + `}`
+}
+
+// newJapaneseStubClient returns a fast client whose transport serves
+// searchJson pages by page number; missing pages get a 500. Expansion and
+// product lookups are stubbed so no card resolution needs the network.
+func newJapaneseStubClient(t *testing.T, pages map[string]string) *Client {
+	t.Helper()
+	client, err := NewClient(WithRespectRobots(false), WithMaxRetries(0), WithRequestsPerSecond(1000), WithBurst(100))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(client.Close)
+
+	client.httpClient.Transport = clientRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/manage/CardListUser/filter-options":
+			return newHTTPResponse(r, http.StatusOK, nil, `{"expansions":[{"id":1,"name":"X","category":"1","disp_flg":1}]}`), nil
+		case "/manage/CardListUser/searchJson":
+			if body, ok := pages[r.URL.Query().Get("page")]; ok {
+				return newHTTPResponse(r, http.StatusOK, nil, body), nil
+			}
+			return newHTTPResponse(r, http.StatusInternalServerError, nil, ""), nil
+		case "/wp-json/wp/v2/products":
+			return newHTTPResponse(r, http.StatusOK, nil, `[]`), nil
+		default:
+			t.Errorf("unexpected URL: %s", r.URL.String())
+			return newHTTPResponse(r, http.StatusNotFound, nil, ""), nil
+		}
+	})
+	return client
+}
+
+func TestCardsJapaneseFailedLaterPageIsIncomplete(t *testing.T) {
+	// 4 results over 2 pages; page 2 is never served.
+	client := newJapaneseStubClient(t, map[string]string{
+		"1": japaneseSearchPage(4, 1, "DC/W01-001", "DC/W01-002"),
+	})
+
+	cards, err := client.Cards(context.Background(), Config{Language: Japanese, ExpansionNumber: 1})
+	if !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Cards err = %v, want ErrIncomplete", err)
+	}
+	if !strings.Contains(err.Error(), "fetch search page 2") {
+		t.Fatalf("error should name the failed page, got: %v", err)
+	}
+	if got := cardNumbers(cards); !slices.Equal(got, []string{"DC/W01-001", "DC/W01-002"}) {
+		t.Fatalf("partial cards = %v, want page 1", got)
+	}
+}
+
+func TestCardsJapaneseCountMismatchIsIncomplete(t *testing.T) {
+	// The API says 4 results over 2 pages but page 2 only carries one item.
+	client := newJapaneseStubClient(t, map[string]string{
+		"1": japaneseSearchPage(4, 1, "DC/W01-001", "DC/W01-002"),
+		"2": japaneseSearchPage(4, 2, "DC/W01-003"),
+	})
+
+	cards, err := client.Cards(context.Background(), Config{Language: Japanese, ExpansionNumber: 1})
+	if !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Cards err = %v, want ErrIncomplete", err)
+	}
+	if !strings.Contains(err.Error(), "site reports 4 results but found 3") {
+		t.Fatalf("error should describe the count mismatch, got: %v", err)
+	}
+	if len(cards) != 3 {
+		t.Fatalf("expected 3 cards, got %d", len(cards))
+	}
+}
+
+func TestCardsJapaneseFailedFirstPageIsNotIncomplete(t *testing.T) {
+	client := newJapaneseStubClient(t, nil)
+
+	cards, err := client.Cards(context.Background(), Config{Language: Japanese, ExpansionNumber: 1})
+	if err == nil {
+		t.Fatal("Cards should fail when the first page can't be fetched")
+	}
+	if errors.Is(err, ErrIncomplete) {
+		t.Fatalf("nothing was scraped, so err should not be ErrIncomplete: %v", err)
+	}
+	if len(cards) != 0 {
+		t.Fatalf("expected no cards, got %d", len(cards))
 	}
 }

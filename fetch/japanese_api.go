@@ -124,8 +124,6 @@ type japanesePRItem struct {
 }
 
 func (c *Client) cardsStreamJapanese(ctx context.Context, cfg Config, urlValues url.Values, cardCh chan<- Card) error {
-	defer close(cardCh)
-
 	filterOptions, err := c.japaneseFilterOptions(ctx)
 	if err != nil {
 		return fmt.Errorf("fetch japanese filter options: %w", err)
@@ -143,12 +141,21 @@ func (c *Client) cardsStreamJapanese(ctx context.Context, cfg Config, urlValues 
 		tasks = append(tasks, cloneURLValues(urlValues))
 	}
 
-	for _, taskValues := range tasks {
+	// Once the first search page has been fetched the scrape has started, and
+	// any later failure leaves the caller with a partial result. Those are
+	// collected and reported together as ErrIncomplete, like the EN scrape.
+	var errs []error
+	for taskIdx, taskValues := range tasks {
 		firstPage, err := c.fetchJapaneseCardSearch(ctx, taskValues, 1)
 		if err != nil {
-			return err
+			if taskIdx == 0 {
+				return err
+			}
+			errs = append(errs, fmt.Errorf("fetch search page 1 for %v: %w", taskValues, err))
+			continue
 		}
 		lastPage := firstPage.lastPage()
+		found := 0
 		for i := 1; i <= lastPage; i++ {
 			if i < cfg.PageStart {
 				continue
@@ -163,10 +170,14 @@ func (c *Client) cardsStreamJapanese(ctx context.Context, cfg Config, urlValues 
 			if pageNum != 1 {
 				page, err = c.fetchJapaneseCardSearch(ctx, taskValues, pageNum)
 				if err != nil {
-					return err
+					err = fmt.Errorf("fetch search page %d for %v: %w", pageNum, taskValues, err)
+					c.log().Error("Page-level scrape failure", "error", err)
+					errs = append(errs, err)
+					continue
 				}
 			}
 
+			found += len(page.Items)
 			for _, item := range page.Items {
 				expansion := expansions[item.Expansion]
 				card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, expansion.Name, c.log())
@@ -183,9 +194,15 @@ func (c *Client) cardsStreamJapanese(ctx context.Context, cfg Config, urlValues 
 				cardCh <- card
 			}
 		}
+		// A partial scrape (PageStart) can't be expected to match the site's count.
+		if cfg.PageStart <= 1 && found != firstPage.Total {
+			err := resultCountMismatch(firstPage.Total, found, taskValues)
+			c.log().Error("Page-level scrape failure", "error", err)
+			errs = append(errs, err)
+		}
 	}
 
-	return nil
+	return incompleteError(errs)
 }
 
 func (c *Client) fetchJapaneseCardSearch(ctx context.Context, params url.Values, page int) (japaneseCardSearchResponse, error) {
