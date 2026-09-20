@@ -709,7 +709,7 @@ func (c *Client) Cards(ctx context.Context, cfg Config) ([]Card, error) {
 }
 
 func (c *Client) Boosters(ctx context.Context, cfg Config) (map[string]Booster, error) {
-	var reducer boosterReducer
+	reducer := boosterReducer{boosterMap: make(map[string]Booster)}
 	err := c.aggregate(ctx, cfg, &reducer)
 
 	return reducer.boosterMap, err

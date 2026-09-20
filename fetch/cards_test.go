@@ -801,3 +801,28 @@ func TestCardCountRejectsGetRecent(t *testing.T) {
 		t.Fatalf("CardCount made %d requests, want 0", n)
 	}
 }
+
+func TestBoostersGroupsCardsByRelease(t *testing.T) {
+	listings := map[string]string{
+		"1": englishListingPage(3, "AB/W31-E001", "AB/W31-E002", "AB/WE10-E01"),
+	}
+	client := newEnglishStubClient(t, nil, listings, okDetailPage)
+
+	boosters, err := client.Boosters(context.Background(), Config{Language: English, ExpansionNumber: 1})
+	if err != nil {
+		t.Fatalf("Boosters failed: %v", err)
+	}
+	if len(boosters) != 2 {
+		t.Fatalf("expected 2 boosters, got %d: %v", len(boosters), boosters)
+	}
+	w31, ok := boosters["W31"]
+	if !ok || w31.ReleaseCode != "W31" {
+		t.Fatalf("missing W31 booster: %+v", boosters)
+	}
+	if got := cardNumbers(w31.Cards); !slices.Equal(got, []string{"AB/W31-E001", "AB/W31-E002"}) {
+		t.Fatalf("W31 cards = %v", got)
+	}
+	if got := cardNumbers(boosters["WE10"].Cards); !slices.Equal(got, []string{"AB/WE10-E01"}) {
+		t.Fatalf("WE10 cards = %v", got)
+	}
+}
