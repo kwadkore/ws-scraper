@@ -78,7 +78,7 @@ type siteConfig struct {
 	// returns how many cards it found there.
 	pageScanParseFunc          func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- cardPage, resp *http.Response) (found int)
 	recentReleaseDistinguisher string
-	recentRelaseExpansionFunc  func(page *goquery.Selection) *url.Values
+	recentReleaseExpansionFunc func(page *goquery.Selection) *url.Values
 	supportTitleNumber         bool
 }
 
@@ -145,7 +145,7 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 			return len(subPaths)
 		},
 		recentReleaseDistinguisher: "div.p-cards__latest-products ul.c-product__list a",
-		recentRelaseExpansionFunc: func(sel *goquery.Selection) *url.Values {
+		recentReleaseExpansionFunc: func(sel *goquery.Selection) *url.Values {
 			if hrefAttr, exists := sel.Attr("href"); exists {
 				re := regexp.MustCompile(`expansion=(\d+)`)
 				if m := re.FindStringSubmatch(hrefAttr); m != nil {
@@ -174,7 +174,7 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 		// Japanese cards come from the JSON search API (see japanese_api.go),
 		// so there are no HTML results-page hooks here.
 		recentReleaseDistinguisher: "div.system > ul.expansion-list a[onclick]",
-		recentRelaseExpansionFunc: func(sel *goquery.Selection) *url.Values {
+		recentReleaseExpansionFunc: func(sel *goquery.Selection) *url.Values {
 			onclickAttr, exists := sel.Attr("onclick")
 			if exists {
 				// Extract the integer value from the onclick attribute
@@ -336,7 +336,7 @@ func getTasksForRecentReleases(siteCfg siteConfig, doc *goquery.Document) []url.
 	var tasks []url.Values
 	// Find all <a> elements with onclick attributes within the <ul> element
 	doc.Find(siteCfg.recentReleaseDistinguisher).Each(func(i int, sel *goquery.Selection) {
-		if v := siteCfg.recentRelaseExpansionFunc(sel); v != nil {
+		if v := siteCfg.recentReleaseExpansionFunc(sel); v != nil {
 			tasks = append(tasks, *v)
 		}
 	})

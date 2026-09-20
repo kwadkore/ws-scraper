@@ -19,23 +19,6 @@ import (
 	"golang.org/x/text/language"
 )
 
-// func TestGetLastPage(t *testing.T) {
-// 	f, err := os.Open("mockws/bd.html")
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	defer f.Close()
-
-// 	doc, err := goquery.NewDocumentFromReader(f)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	last := getLastPage(doc)
-// 	if last != 69 {
-// 		t.Errorf("%v is not last", last)
-// 	}
-// }
-
 // fastTestOptions builds a client that talks to a stub transport as quickly
 // as the client allows: no robots lookup, no retries, an effectively
 // unlimited rate limiter, and enough network slots for the scrape workers

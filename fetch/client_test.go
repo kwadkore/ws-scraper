@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+// clientRoundTripFunc stubs a Client's transport in tests.
+//
+// Scrapes run the transport on worker goroutines, so never call t.Fatal (or
+// anything else that ends the goroutine) inside one: the worker dies without
+// signalling its WaitGroup and the test hangs until the timeout instead of
+// failing. Use t.Error and return a response.
 type clientRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f clientRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
