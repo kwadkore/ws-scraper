@@ -76,7 +76,7 @@ type siteConfig struct {
 	resultCountFunc func(doc *goquery.Document) (int, error)
 	// pageScanParseFunc queues the cards on one search results page and
 	// returns how many cards it found there.
-	pageScanParseFunc          func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (found int)
+	pageScanParseFunc          func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- cardPage, resp *http.Response) (found int)
 	recentReleaseDistinguisher string
 	recentRelaseExpansionFunc  func(page *goquery.Selection) *url.Values
 	supportTitleNumber         bool
@@ -105,7 +105,7 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 			}
 			return numCards, nil
 		},
-		pageScanParseFunc: func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- *goquery.Selection, resp *http.Response) (found int) {
+		pageScanParseFunc: func(task *scrapeTask, wgCardSel *sync.WaitGroup, cardSelCh chan<- cardPage, resp *http.Response) (found int) {
 			log := task.client.log()
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -138,9 +138,8 @@ var siteConfigs = map[SiteLanguage]siteConfig{
 					continue
 				}
 				log.With("url", fullPath).Debug("Successfully parsed detailed page")
-				cardDetails := doc.Selection
 				wgCardSel.Add(1)
-				cardSelCh <- cardDetails
+				cardSelCh <- cardPage{url: fullPath, task: task, sel: doc.Selection}
 			}
 
 			return len(subPaths)
@@ -226,6 +225,13 @@ type Booster struct {
 	// number. See Card.Release for more information.
 	ReleaseCode string
 	Cards       []Card
+}
+
+// cardPage is a fetched card detail page, queued for extraction.
+type cardPage struct {
+	url  string
+	task *scrapeTask
+	sel  *goquery.Selection
 }
 
 type scrapeTask struct {
@@ -373,7 +379,7 @@ func pageScanWorker(
 	id int,
 	task *scrapeTask,
 	wgCardSel *sync.WaitGroup,
-	cardSelCh chan<- *goquery.Selection,
+	cardSelCh chan<- cardPage,
 ) {
 	log := task.client.log()
 	for resp := range task.pageRespCh {
@@ -402,9 +408,18 @@ func getImageWithClient(ctx context.Context, client *Client, url string) (image.
 	return img, nil
 }
 
-func extractWorker(ctx context.Context, client *Client, siteCfg siteConfig, getImages bool, wgCardSel *sync.WaitGroup, cardSelChan <-chan *goquery.Selection, cardCh chan<- Card) {
-	for s := range cardSelChan {
-		c := extractData(siteCfg, s, client.log())
+func extractWorker(ctx context.Context, client *Client, siteCfg siteConfig, getImages bool, wgCardSel *sync.WaitGroup, cardSelChan <-chan cardPage, cardCh chan<- Card) {
+	for page := range cardSelChan {
+		c := extractData(siteCfg, page.sel, client.log())
+		if c.CardNumber == "" {
+			// Either the page wasn't a card page (a block or error page served
+			// with 200) or extraction panicked and recovered to a zero Card.
+			// A blank card is worse than a missing one, so drop it and make
+			// the scrape incomplete.
+			page.task.fail(fmt.Errorf("card page %s produced no card", page.url))
+			wgCardSel.Done()
+			continue
+		}
 		applyExpansionMetadata(&c, client.resolveExpansionMetadata(ctx, SiteLanguage(siteCfg.languageCode), c))
 
 		if getImages {
@@ -595,7 +610,11 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 		if err != nil {
 			return fmt.Errorf("error parsing recent: %v", err)
 		}
-		for _, recent := range getTasksForRecentReleases(siteCfg, doc) {
+		recentTasks := getTasksForRecentReleases(siteCfg, doc)
+		if len(recentTasks) == 0 {
+			return fmt.Errorf("no recent releases found on %s", siteCfg.cardListURL)
+		}
+		for _, recent := range recentTasks {
 			c.log().Debug(fmt.Sprintf("recent scrape task=%v", recent))
 			scrapeTasks = append(scrapeTasks, newTask(recent))
 		}
@@ -618,7 +637,7 @@ func (c *Client) CardsStream(ctx context.Context, cfg Config, cardCh chan<- Card
 	c.log().Debug(fmt.Sprintf("Number of loop %v", loopNum))
 
 	var wgScanner, wgCardSel sync.WaitGroup
-	cardSelCh := make(chan *goquery.Selection, maxLocalWorker)
+	cardSelCh := make(chan cardPage, maxLocalWorker)
 	for i := 0; i < maxLocalWorker; i++ {
 		go extractWorker(ctx, c, siteCfg, cfg.GetImages, &wgCardSel, cardSelCh, cardCh)
 	}

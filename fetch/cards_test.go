@@ -590,15 +590,22 @@ func japaneseSearchPage(total, page int, cardNos ...string) string {
 // newJapaneseStubClient returns a fast client whose transport serves
 // searchJson pages by page number; missing pages get a 500. Expansion and
 // product lookups are stubbed so no card resolution needs the network.
-func newJapaneseStubClient(t *testing.T, pages map[string]string) *Client {
+func newJapaneseStubClient(t *testing.T, logs *syncBuffer, pages map[string]string) *Client {
 	t.Helper()
-	client, err := NewClient(fastTestOptions()...)
+	opts := fastTestOptions()
+	if logs != nil {
+		opts = append(opts, WithLogger(slog.New(slog.NewTextHandler(logs, nil))))
+	}
+	client, err := NewClient(opts...)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
 	t.Cleanup(client.Close)
 
 	client.httpClient.Transport = clientRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.HasPrefix(r.URL.Path, "/wordpress/wp-content/images/cardlist/") {
+			return newHTTPResponse(r, http.StatusInternalServerError, nil, ""), nil
+		}
 		switch r.URL.Path {
 		case "/manage/CardListUser/filter-options":
 			return newHTTPResponse(r, http.StatusOK, nil, `{"expansions":[{"id":1,"name":"X","category":"1","disp_flg":1}]}`), nil
@@ -619,7 +626,7 @@ func newJapaneseStubClient(t *testing.T, pages map[string]string) *Client {
 
 func TestCardsJapaneseFailedLaterPageIsIncomplete(t *testing.T) {
 	// 4 results over 2 pages; page 2 is never served.
-	client := newJapaneseStubClient(t, map[string]string{
+	client := newJapaneseStubClient(t, nil, map[string]string{
 		"1": japaneseSearchPage(4, 1, "DC/W01-001", "DC/W01-002"),
 	})
 
@@ -637,7 +644,7 @@ func TestCardsJapaneseFailedLaterPageIsIncomplete(t *testing.T) {
 
 func TestCardsJapaneseCountMismatchIsIncomplete(t *testing.T) {
 	// The API says 4 results over 2 pages but page 2 only carries one item.
-	client := newJapaneseStubClient(t, map[string]string{
+	client := newJapaneseStubClient(t, nil, map[string]string{
 		"1": japaneseSearchPage(4, 1, "DC/W01-001", "DC/W01-002"),
 		"2": japaneseSearchPage(4, 2, "DC/W01-003"),
 	})
@@ -655,7 +662,7 @@ func TestCardsJapaneseCountMismatchIsIncomplete(t *testing.T) {
 }
 
 func TestCardsJapaneseFailedFirstPageIsNotIncomplete(t *testing.T) {
-	client := newJapaneseStubClient(t, nil)
+	client := newJapaneseStubClient(t, nil, nil)
 
 	cards, err := client.Cards(context.Background(), Config{Language: Japanese, ExpansionNumber: 1})
 	if err == nil {
@@ -824,5 +831,78 @@ func TestBoostersGroupsCardsByRelease(t *testing.T) {
 	}
 	if got := cardNumbers(boosters["WE10"].Cards); !slices.Equal(got, []string{"AB/WE10-E01"}) {
 		t.Fatalf("WE10 cards = %v", got)
+	}
+}
+
+func TestCardsEnglishNonCardPageIsAnError(t *testing.T) {
+	listings := map[string]string{
+		"1": englishListingPage(2, "AB/W31-E001", "AB/W31-E002"),
+	}
+	client := newEnglishStubClient(t, nil, listings, func(cardNo string) (int, string) {
+		if cardNo == "AB/W31-E002" {
+			// A 200 that isn't a card page, e.g. a bot challenge or error page.
+			return http.StatusOK, `<html><body><h1>Access denied</h1></body></html>`
+		}
+		return okDetailPage(cardNo)
+	})
+
+	cards, err := client.Cards(context.Background(), Config{Language: English, ExpansionNumber: 1})
+	if !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Cards err = %v, want ErrIncomplete", err)
+	}
+	if !strings.Contains(err.Error(), "cardno=AB/W31-E002") || !strings.Contains(err.Error(), "produced no card") {
+		t.Fatalf("error should name the bad page, got: %v", err)
+	}
+	if got := cardNumbers(cards); !slices.Equal(got, []string{"AB/W31-E001"}) {
+		t.Fatalf("cards = %v, want only the good card (no blank card)", got)
+	}
+}
+
+func TestCardsEnglishGetRecentWithNoReleasesIsAnError(t *testing.T) {
+	client, _ := newCountingClient(t, func(r *http.Request) *http.Response {
+		if r.URL.Path == "/cardlist/" {
+			return newHTTPResponse(r, http.StatusOK, nil, `<html><body><p>redesigned landing page</p></body></html>`)
+		}
+		t.Errorf("unexpected URL: %s", r.URL)
+		return newHTTPResponse(r, http.StatusNotFound, nil, "")
+	})
+
+	cards, err := client.Cards(context.Background(), Config{Language: English, GetRecent: true})
+	if err == nil || !strings.Contains(err.Error(), "no recent releases") {
+		t.Fatalf("Cards err = %v, want a no-recent-releases error", err)
+	}
+	if len(cards) != 0 {
+		t.Fatalf("expected no cards, got %d", len(cards))
+	}
+}
+
+func TestCardsJapaneseGetRecentWithNoReleasesIsAnError(t *testing.T) {
+	// The stub's filter-options lists one expansion without newest_flg.
+	client := newJapaneseStubClient(t, nil, nil)
+
+	cards, err := client.Cards(context.Background(), Config{Language: Japanese, GetRecent: true})
+	if err == nil || !strings.Contains(err.Error(), "no recent releases") {
+		t.Fatalf("Cards err = %v, want a no-recent-releases error", err)
+	}
+	if len(cards) != 0 {
+		t.Fatalf("expected no cards, got %d", len(cards))
+	}
+}
+
+func TestCardsJapaneseLogsImageFetchFailure(t *testing.T) {
+	var logs syncBuffer
+	client := newJapaneseStubClient(t, &logs, map[string]string{
+		"1": japaneseSearchPage(1, 1, "DC/W01-001"),
+	})
+
+	cards, err := client.Cards(context.Background(), Config{Language: Japanese, ExpansionNumber: 1, GetImages: true})
+	if err != nil {
+		t.Fatalf("Cards failed: %v", err)
+	}
+	if len(cards) != 1 || cards[0].Image != nil {
+		t.Fatalf("expected one card without an image, got %+v", cards)
+	}
+	if got := logs.String(); !strings.Contains(got, "Problem getting image for DC/W01-001") {
+		t.Fatalf("missing image failure log in:\n%s", got)
 	}
 }

@@ -132,7 +132,11 @@ func (c *Client) cardsStreamJapanese(ctx context.Context, cfg Config, urlValues 
 
 	var tasks []url.Values
 	if cfg.GetRecent {
-		for _, v := range recentJapaneseExpansionValues(filterOptions) {
+		recent := recentJapaneseExpansionValues(filterOptions)
+		if len(recent) == 0 {
+			return fmt.Errorf("no recent releases found in %s", japaneseCardFilterOptionsAPI)
+		}
+		for _, v := range recent {
 			taskValues := cloneURLValues(urlValues)
 			taskValues.Set("expansion", v.Get("expansion"))
 			tasks = append(tasks, taskValues)
@@ -187,7 +191,9 @@ func (c *Client) cardsStreamJapanese(ctx context.Context, cfg Config, urlValues 
 					applyExpansionMetadata(&card, c.resolveJapaneseProductExpansionMetadata(ctx, card, expansion))
 				}
 				if cfg.GetImages {
-					if img, err := getImageWithClient(ctx, c, card.ImageURL); err == nil {
+					if img, err := getImageWithClient(ctx, c, card.ImageURL); err != nil {
+						c.log().Error(fmt.Sprintf("Problem getting image for %s: %v", card.CardNumber, err))
+					} else {
 						card.Image = img
 					}
 				}
