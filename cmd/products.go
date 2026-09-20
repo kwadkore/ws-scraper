@@ -36,22 +36,31 @@ var productsCmd = &cobra.Command{
 	Use:   "products",
 	Short: "Get products information",
 	Long: `Get products information.
-It will output the ReleaseDate, Title, Image, SetCode, LicenceCode in a 'product.json' file.`,
-	Run: func(cmd *cobra.Command, args []string) {
+It will output the ReleaseDate, Title, Image, SetCode, LicenceCode in a 'product.json' file.
+
+Whatever was fetched is written even when the request fails, but the
+command then exits non-zero so scripts don't mistake a partial export for
+a complete one.`,
+	// A failed fetch is not a usage error; don't print the flag list for it.
+	SilenceUsage: true,
+	// The error is already logged where it happens; don't print it twice.
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("products called")
 
 		client, err := newFetchClient()
 		if err != nil {
 			slog.Error(fmt.Sprintf("Error creating scraper client: %v", err))
-			return
+			return err
 		}
 		defer client.Close()
 
-		productList, err := client.Products(context.Background(), cmd.Flag("page").Value.String())
-		if err != nil {
-			slog.Error(fmt.Sprintf("Error fetching products: %v", err))
+		productList, fetchErr := client.Products(context.Background(), cmd.Flag("page").Value.String())
+		if fetchErr != nil {
+			slog.Error(fmt.Sprintf("Error fetching products: %v", fetchErr))
 		}
 		writeProducts(productList)
+		return fetchErr
 	},
 }
 

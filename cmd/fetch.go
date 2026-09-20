@@ -101,8 +101,16 @@ var fetchCmd = &cobra.Command{
 	Short: "Fetch cards",
 	Long: `Fetch cards
 
-Use global switches to specify the set, by default it will fetch all sets.`,
-	Run: func(cmd *cobra.Command, args []string) {
+Use global switches to specify the set, by default it will fetch all sets.
+
+Whatever was fetched is written even when the scrape fails part way, but
+the command then exits non-zero so scripts don't mistake a partial export
+for a complete one.`,
+	// A failed scrape is not a usage error; don't print the flag list for it.
+	SilenceUsage: true,
+	// The error is already logged where it happens; don't print it twice.
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := fetch.Config{
 			GetAllRarities: viper.GetBool("allrarity"),
 			GetRecent:      viper.GetBool("recent"),
@@ -155,11 +163,15 @@ Use global switches to specify the set, by default it will fetch all sets.`,
 
 		mode := viper.GetString("export")
 		slog.Info(fmt.Sprintf("Start write in mode: %v", mode))
+		// fetchErr is returned after the output is written so a partial
+		// result is still exported but the exit status reports the failure.
+		var fetchErr error
 		switch mode {
 		case "booster":
 			bm, err := client.Boosters(context.Background(), cfg)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Error fetching boosters: %v", err))
+				fetchErr = err
 			}
 			writeBoosters(lang, bm)
 		case "card":
@@ -172,12 +184,14 @@ Use global switches to specify the set, by default it will fetch all sets.`,
 			err := client.CardsStream(context.Background(), cfg, cardCh)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Error fetching cards: %v", err))
+				fetchErr = err
 			}
 			wg.Wait()
 		case "expansionlist":
 			eMap, err := client.ExpansionList(context.Background(), cfg)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Error fetching expansion list: %v", err))
+				fetchErr = err
 			}
 			if len(eMap) > 0 {
 				var expansions []int
@@ -197,11 +211,13 @@ Use global switches to specify the set, by default it will fetch all sets.`,
 			})
 			if err != nil {
 				slog.Error(fmt.Sprintf("Error fetching deck rules: %v", err))
+				fetchErr = err
 			}
 			writeDeckRules(rules, cfg.Language)
 		default:
 			panic(fmt.Sprintf("Unsupported export mode: %q", mode))
 		}
+		return fetchErr
 	},
 }
 
