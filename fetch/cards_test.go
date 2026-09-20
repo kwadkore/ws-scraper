@@ -251,6 +251,12 @@ func TestEnglishListingCardLinks_dedupesAndUnescapes(t *testing.T) {
 }
 
 func englishDetailPage(cardNumber, name string) string {
+	return englishDetailPageWithText(cardNumber, name, "【CONT】 Nothing.")
+}
+
+// englishDetailPageWithText builds a minimal EN card detail page whose rules
+// text is the given HTML fragment.
+func englishDetailPageWithText(cardNumber, name, textHTML string) string {
 	return `
 <div class="p-cards__detail-wrapper">
 	<div class="image"><img src="/wordpress/wp-content/images/cardimages/b/bm_s15/x.png" alt="" decoding="async"></div>
@@ -271,9 +277,12 @@ func englishDetailPage(cardNumber, name string) string {
 		<dl><dt>Soul</dt><dd><img src="/wordpress/wp-content/images/partimages/soul.gif" alt="" decoding="async"></dd></dl>
 		<dl><dt>Trigger</dt><dd>-</dd></dl>
 	</div>
-	<div class="p-cards__detail u-mt-22 u-mt-40-sp"><p>【CONT】 Nothing.</p></div>
+	<div class="p-cards__detail u-mt-22 u-mt-40-sp"><p>` + textHTML + `</p></div>
+	<div class="p-cards__detail-serif u-mt-22 u-mt-40-sp"><p>-</p></div>
+	<p class="p-cards__detail-copyrights u-mt-22 u-mt-40-sp">©SOMEONE</p>
 	</div>
-</div>`
+</div>
+<footer><div class="copyrights"><p>©VisualArt's ©Bushiroad</p></div></footer>`
 }
 
 func TestCardsEnglishSurvivesUnclosedImgOnListingPage(t *testing.T) {

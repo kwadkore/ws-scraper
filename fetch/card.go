@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/text/language"
@@ -313,10 +314,14 @@ func extractDataEn(config siteConfig, mainHTML *goquery.Selection, log *slog.Log
 		info["flavourText"] = flvr
 	}
 
-	ability, err := extractAbilities(mainHTML.Find(".p-cards__detail p").Last())
+	ability, abilityFailures, err := extractAbilities(mainHTML.Find(".p-cards__detail p").Last())
 	if err != nil {
 		log.With("cardnumber", cardNumber).Error(fmt.Sprintf("Failed to get ability node: %v", err))
 	}
+	for _, failure := range abilityFailures {
+		log.With("cardnumber", cardNumber).Warn("Non-fatal text parse failure", "failure", failure)
+	}
+	cardFailures = append(cardFailures, abilityFailures...)
 
 	card := Card{
 		CardNumber: cardNumber,
@@ -377,13 +382,16 @@ func extractDataJp(config siteConfig, mainHTML *goquery.Selection, log *slog.Log
 	expansionName := strings.TrimSpace(strings.Split(mainHTML.Find("h4").Text(), ") -")[1])
 	imageCardURL, _ := mainHTML.Find("a img").Attr("src")
 
-	ability, err := extractAbilities(mainHTML.Find("span").Last())
+	ability, abilityFailures, err := extractAbilities(mainHTML.Find("span").Last())
 	if err != nil {
 		log.With("cardnumber", rawCardNumber).Error(fmt.Sprintf("Failed to get ability node: %v", err))
 	}
+	for _, failure := range abilityFailures {
+		log.With("cardnumber", rawCardNumber).Warn("Non-fatal text parse failure", "failure", failure)
+	}
 
 	infos := make(map[string]string)
-	cardFailures := make([]string, 0)
+	cardFailures := append(make([]string, 0), abilityFailures...)
 	mainHTML.Find(".unit").Each(func(i int, s *goquery.Selection) {
 		txt := strings.TrimSpace(s.Text())
 		switch {
@@ -583,18 +591,88 @@ func parseTriggers(node *goquery.Selection, cardNumber string, log *slog.Logger)
 	return triggers, failures
 }
 
-func extractAbilities(abilityNode *goquery.Selection) ([]string, error) {
-	var ability []string
+// textIconTokens maps the non-trigger icon images the site inlines in rules
+// text to the tokens used in Card.Text. Colour icons use the CardColor names
+// in the same [NAME] form as trigger icons. Keyword badges use the site's own
+// 【KEYWORD】 form: the site writes 【COUNTER】 as text on some cards and
+// inlines c-icon.gif (the counter fist) on others.
+var textIconTokens = map[string]string{
+	"blue":   "[" + string(CardColorBlue) + "]",
+	"green":  "[" + string(CardColorGreen) + "]",
+	"red":    "[" + string(CardColorRed) + "]",
+	"yellow": "[" + string(CardColorYellow) + "]",
+	"purple": "[" + string(CardColorPurple) + "]",
+	"c-icon": "【COUNTER】",
+	"replay": "【REPLAY】",
+	"link":   "【LINK】",
+}
+
+// textIconToken returns the Card.Text token for an inline icon image name
+// (the file name without extension).
+func textIconToken(name string) (string, bool) {
+	if trigger, ok := triggersMap[name]; ok {
+		return fmt.Sprintf("[%s]", string(trigger)), true
+	}
+	token, ok := textIconTokens[name]
+	return token, ok
+}
+
+// iconFileRE matches a well-formed icon path's file name, e.g. "soul.gif".
+var iconFileRE = regexp.MustCompile(`^([A-Za-z0-9_-]+)\.[A-Za-z0-9]+$`)
+
+// salvageMalformedIconText recovers the rules text swallowed by an <img>
+// whose src attribute the site never closed, e.g.
+//
+//	<img src='/.../partimages/REST] two of your characters] This card gets +2500 power.</p> ...
+//
+// The HTML parser runs such an attribute to the next quote, which can be
+// most of the page. Everything from the icon name up to the first tag is the
+// text the card was meant to show, so return that. The icon's directory is
+// the part up to the last "/" before the first space: the path itself has no
+// spaces, and the text after it may well contain a "/" (e.g. "1/2").
+func salvageMalformedIconText(src string) string {
+	if i := strings.Index(src, "<"); i >= 0 {
+		src = src[:i]
+	}
+	pathEnd := strings.IndexFunc(src, unicode.IsSpace)
+	if pathEnd < 0 {
+		pathEnd = len(src)
+	}
+	return strings.TrimSpace(src[strings.LastIndex(src[:pathEnd], "/")+1:])
+}
+
+// iconFileName returns the file name of an icon image src, without any
+// query string or fragment, e.g. "choice.gif" for "/x/choice.gif?ver=123".
+func iconFileName(src string) string {
+	_, file := path.Split(src)
+	if i := strings.IndexAny(file, "?#"); i >= 0 {
+		file = file[:i]
+	}
+	return file
+}
+
+// extractAbilities splits the rules text node into lines, replacing the
+// inline icon images with text tokens. An icon it doesn't recognise becomes
+// a [file-name] token in the file's own (lower) case, so the text still
+// reads sensibly and the token is visibly not one of the curated uppercase
+// ones, and is reported in failures so a mapping can be added.
+func extractAbilities(abilityNode *goquery.Selection) (ability []string, failures []string, err error) {
 	abilityNode.Find("img").Each(func(i int, s *goquery.Selection) {
-		url, has := s.Attr("src")
-		if has {
-			_, _imgPlaceHolder := path.Split(url)
-			_imgPlaceHolder = strings.Split(_imgPlaceHolder, ".")[0]
-			if trigger, ok := triggersMap[_imgPlaceHolder]; ok {
-				t := fmt.Sprintf("[%s]", string(trigger))
-				s.ReplaceWithHtml(t)
+		src, _ := s.Attr("src")
+		file := iconFileName(src)
+		if m := iconFileRE.FindStringSubmatch(file); m != nil {
+			token, ok := textIconToken(m[1])
+			if !ok {
+				failures = append(failures, fmt.Sprintf("unknown text icon: %s", file))
+				token = fmt.Sprintf("[%s]", m[1])
 			}
+			s.ReplaceWithHtml(token)
+			return
 		}
+		// Not a plain file name: the site left the src attribute unclosed and
+		// the parser swallowed the rest of the text into it.
+		failures = append(failures, "malformed icon img in text")
+		s.ReplaceWithHtml(html.EscapeString(salvageMalformedIconText(src)))
 	})
 	abilityNodeHtml, err := abilityNode.Html()
 	if err != nil {
@@ -607,7 +685,7 @@ func extractAbilities(abilityNode *goquery.Selection) ([]string, error) {
 		}
 		ability = append(ability, html.UnescapeString(line))
 	}
-	return ability, err
+	return ability, failures, err
 }
 
 func sanitizeCardNumber(cn string) string {

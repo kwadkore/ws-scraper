@@ -3,6 +3,7 @@ package fetch
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
@@ -2221,5 +2222,97 @@ func TestExtractData_en_improperColor(t *testing.T) {
 
 		card := extractData(siteConfigs[tc.lang], doc.Clone(), nil)
 		assertCardEqualsWithTitle(t, tc.name, card, tc.expectedCard)
+	}
+}
+
+func TestExtractData_en_textIconsBecomeTokens(t *testing.T) {
+	page := englishDetailPageWithText("DG/EN-S03-E004", "Prinny", strings.Join([]string{
+		`【ACT】 <img src='/wordpress/wp-content/images/partimages/c-icon.gif' /> Backup 1500, Level 1 [(1) Put this card from your hand into your waiting room]`,
+		`<img src='/wordpress/wp-content/images/partimages/replay.gif' /> Wager your soul in a game Reveal the top card of your deck.`,
+		`【CONT】 <img src='/wordpress/wp-content/images/partimages/link.gif' /> Super Dimension Venus`,
+		`(<img src="/wordpress/wp-content/images/partimages/choice.gif">: choose 1 character with <img src="/wordpress/wp-content/images/partimages/blue.gif"> in its trigger icon)`,
+		`Ignore <img src="/wordpress/wp-content/images/partimages/mystery.gif"> this and <img src="/wordpress/wp-content/images/partimages/yellow.gif"> keep this.`,
+		`Versioned <img src="/wordpress/wp-content/images/partimages/choice.gif?ver=123"> and <img src="https://cdn.example/partimages/gate.gif#x"> icons.`,
+	}, "<br />\n"))
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	card := extractData(siteConfigs[English], doc.Selection, nil)
+
+	wantText := []string{
+		"【ACT】 【COUNTER】 Backup 1500, Level 1 [(1) Put this card from your hand into your waiting room]",
+		"【REPLAY】 Wager your soul in a game Reveal the top card of your deck.",
+		"【CONT】 【LINK】 Super Dimension Venus",
+		"([CHOICE]: choose 1 character with [BLUE] in its trigger icon)",
+		"Ignore [mystery] this and [YELLOW] keep this.",
+		"Versioned [CHOICE] and [GATE] icons.",
+	}
+	if !slices.Equal(card.Text, wantText) {
+		t.Errorf("Text mismatch\n got: %q\nwant: %q", card.Text, wantText)
+	}
+	if want := []string{"unknown text icon: mystery.gif"}; !slices.Equal(card.ParseFailures, want) {
+		t.Errorf("ParseFailures = %q, want %q", card.ParseFailures, want)
+	}
+	for _, line := range card.Text {
+		if strings.Contains(line, "<img") {
+			t.Errorf("img tag leaked into text: %q", line)
+		}
+	}
+}
+
+func TestSalvageMalformedIconText(t *testing.T) {
+	tests := []struct{ src, want string }{
+		{
+			src:  "/wordpress/wp-content/images/partimages/REST] two of your ?Strange? characters] This card gets +2500 power until end of turn.</p>\n<div>rest of page</div>",
+			want: "REST] two of your ?Strange? characters] This card gets +2500 power until end of turn.",
+		},
+		{
+			// A slash in the rules text must not be mistaken for the path.
+			src:  "/wordpress/wp-content/images/partimages/STAND] Pay 1/2 of your stock</p>",
+			want: "STAND] Pay 1/2 of your stock",
+		},
+		{
+			src:  "/partimages/REST]</p>",
+			want: "REST]",
+		},
+	}
+	for _, tt := range tests {
+		if got := salvageMalformedIconText(tt.src); got != tt.want {
+			t.Errorf("salvageMalformedIconText(%q) = %q, want %q", tt.src, got, tt.want)
+		}
+	}
+}
+
+func TestExtractData_en_malformedIconImgIsSalvaged(t *testing.T) {
+	// Verbatim from BM/S15-E103 on the live site: the src attribute is never
+	// closed, so the parser swallows the rest of the page into it, up to the
+	// apostrophe in the footer's "VisualArt's".
+	page := englishDetailPageWithText("BM/S15-E103", "Daughter of a Proper Family, Senjyogahara Hitagi",
+		"【AUTO】 When this card is placed on stage from your hand, you may choose a ?Strange? character in your waiting room, and return it to your hand.<br />\n"+
+			"【ACT】 <img src='/wordpress/wp-content/images/partimages/REST] two of your ?Strange? characters] This card gets +2500 power until end of turn.")
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Find(".p-cards__detail p img").Length(); got != 1 {
+		t.Fatalf("fixture should parse to exactly one swallowed <img>, got %d", got)
+	}
+
+	card := extractData(siteConfigs[English], doc.Selection, nil)
+
+	wantText := []string{
+		"【AUTO】 When this card is placed on stage from your hand, you may choose a ?Strange? character in your waiting room, and return it to your hand.",
+		"【ACT】 REST] two of your ?Strange? characters] This card gets +2500 power until end of turn.",
+	}
+	if !slices.Equal(card.Text, wantText) {
+		t.Errorf("Text mismatch\n got: %q\nwant: %q", card.Text, wantText)
+	}
+	if want := []string{"malformed icon img in text"}; !slices.Equal(card.ParseFailures, want) {
+		t.Errorf("ParseFailures = %q, want %q", card.ParseFailures, want)
+	}
+	if card.FlavorText != "" {
+		t.Errorf("FlavorText = %q, want empty", card.FlavorText)
 	}
 }
