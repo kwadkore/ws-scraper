@@ -323,9 +323,10 @@ func cardFromJapaneseAPIItem(config siteConfig, item japaneseCardItem, expansion
 		Text:          splitJapaneseAPIText(item.Text),
 		Triggers:      triggersFromIconString(item.CardTrigger, cardNumber),
 		Traits:        traitsFromJapaneseAPI(item.Feature1, item.Feature2, item.Feature3),
-	}
-	if card.Type == CardTypeCharacter {
-		card.Soul = soulFromIconString(item.Soul)
+		// Soul comes from the soul field, not from card kind. The site sometimes
+		// reports cards under an unknown card_kind (NIK/S135-P02S is "1",
+		// while characters are "2") while still listing soul icons.
+		Soul: soulFromIconString(item.Soul),
 	}
 	if fullURL, err := joinPath(config.baseURL, japaneseCardImageBase+item.Picture); err == nil {
 		card.ImageURL = fullURL.String()

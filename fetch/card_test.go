@@ -65,12 +65,47 @@ func TestCardFromJapaneseAPIItem(t *testing.T) {
 	assertCardEquals(t, card, want)
 }
 
+func TestCardFromJapaneseAPIItemUnknownKindStillParsesSoul(t *testing.T) {
+	// https://ws-tcg.com/cardlist/?cardno=NIK/S135-P02S
+	// The live record is a level 3 character, but card_kind is "1" rather than "2".
+	item := japaneseCardItem{
+		CardNumber:  "NIK/S135-P02S",
+		CardName:    "バイパー - シャイン・オブ・ラブ",
+		CardKind:    "1",
+		Color:       "[[yellow.gif]]",
+		Level:       "3",
+		Cost:        "2",
+		Power:       "10500",
+		Soul:        "[[soul.gif]][[soul.gif]]",
+		CardTrigger: "[[soul.gif]]",
+		Picture:     "n/nik_s135/nik_s135_p02s.png",
+		Rare:        "PR",
+		Feature1:    "NIKKE",
+		Side:        "-2",
+	}
+
+	card := cardFromJapaneseAPIItem(siteConfigs[Japanese], item, "勝利の女神：NIKKE", nil)
+	if card.Type != "" {
+		t.Fatalf("unexpected type: %q", card.Type)
+	}
+	if !equalIntPtr(card.Soul, intPtr(2)) {
+		t.Fatalf("Soul: got %v want 2", card.Soul)
+	}
+	if !equalIntPtr(card.Power, intPtr(10500)) {
+		t.Fatalf("Power: got %v want 10500", card.Power)
+	}
+	if !equalSlice(card.Triggers, []Trigger{TriggerSoul}) {
+		t.Fatalf("unexpected triggers: %v", card.Triggers)
+	}
+}
+
 func TestCardFromJapaneseAPIItemMultiSideClimax(t *testing.T) {
 	item := japaneseCardItem{
 		CardNumber:  "Gso/WS02-124SP",
 		CardName:    "巡り合う二人 キリト＆アスナ",
 		CardKind:    "4",
 		Color:       "[[blue.gif]]",
+		Soul:        "-",
 		CardTrigger: "[[choice.gif]]",
 		Text:        "【永】 あなたのキャラすべてに、ソウルを＋2。",
 		Picture:     "g/g_ws02/gso_ws02_124sp.png",
@@ -88,6 +123,9 @@ func TestCardFromJapaneseAPIItemMultiSideClimax(t *testing.T) {
 	}
 	if !equalSlice(card.Triggers, []Trigger{TriggerChoice}) {
 		t.Fatalf("unexpected triggers: %v", card.Triggers)
+	}
+	if card.Soul != nil {
+		t.Fatalf("Soul: got %v want nil", card.Soul)
 	}
 }
 
