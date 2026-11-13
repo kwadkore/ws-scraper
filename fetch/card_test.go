@@ -2354,3 +2354,28 @@ func TestExtractData_en_malformedIconImgIsSalvaged(t *testing.T) {
 		t.Errorf("FlavorText = %q, want empty", card.FlavorText)
 	}
 }
+
+func TestSanitizeCardNumber_underscores(t *testing.T) {
+	tests := []struct{ src, want, setID, release, id string }{
+		// JP: a trailing _ marks a second card under an already-used number.
+		{"BD/W54-022_", "BD/W54-022_", "BD", "W54", "022_"},
+		{"SMP/W137-070A_", "SMP/W137-070A_", "SMP", "W137", "070A_"},
+		{"MK/S11-T01_", "MK/S11-T01_", "MK", "S11", "T01_"},
+		// EN: _ separates the release from the ID, later ones become spaces.
+		{src: "BD/WE42_E096_N", want: "BD/WE42-E096 N"},
+	}
+	for _, tt := range tests {
+		got := sanitizeCardNumber(tt.src)
+		if got != tt.want {
+			t.Errorf("sanitizeCardNumber(%q) = %q, want %q", tt.src, got, tt.want)
+			continue
+		}
+		if strings.HasSuffix(tt.want, "_") {
+			setID, release, _, id := parseCardNumber(got, nil)
+			if setID != tt.setID || release != tt.release || id != tt.id {
+				t.Errorf("parseCardNumber(%q) = (%q, %q, %q), want (%q, %q, %q)",
+					got, setID, release, id, tt.setID, tt.release, tt.id)
+			}
+		}
+	}
+}

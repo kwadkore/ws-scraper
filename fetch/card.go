@@ -692,22 +692,31 @@ func sanitizeCardNumber(cn string) string {
 	// The website sometimes shows "%2B" instead of + for some cards (eg. SSP+ rarity).
 	cn = strings.ReplaceAll(cn, "%2B", "+")
 
-	// Replace underscores with appropriate characters before parsing
-	// First underscore after release code becomes hyphen, rest become spaces
+	// Replace underscores with appropriate characters before parsing.
+	// An underscore separating the release code from the ID becomes a hyphen
+	// (EN: BD/WE42_E096_N), other underscores become spaces, and a trailing
+	// underscore is kept as-is: the JP site uses it to give a second card under
+	// an already-used number (BD/W54-022_ alongside BD/W54-022), so it's part of
+	// what tells the two apart and of the ?cardno= value the site responds to.
 	parts := strings.Split(cn, "/")
 	if len(parts) > 1 {
 		beforeSlash := parts[0]
 		afterSlash := parts[1]
 
-		// Find the first underscore after the release code
 		releaseEnd := strings.IndexAny(afterSlash, "-_")
 		if releaseEnd != -1 && strings.Contains(afterSlash, "_") {
 			release := afterSlash[:releaseEnd]
-			rest := afterSlash[releaseEnd:]
-			// Replace first underscore with hyphen, rest with spaces
-			rest = strings.Replace(rest, "_", "-", 1)
+			sep := afterSlash[releaseEnd : releaseEnd+1]
+			rest := afterSlash[releaseEnd+1:]
+			if sep == "_" {
+				sep = "-"
+			}
+			trailing := ""
+			if strings.HasSuffix(rest, "_") {
+				rest, trailing = rest[:len(rest)-1], "_"
+			}
 			rest = strings.ReplaceAll(rest, "_", " ")
-			afterSlash = release + rest
+			afterSlash = release + sep + rest + trailing
 		}
 
 		cn = beforeSlash + "/" + afterSlash
